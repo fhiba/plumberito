@@ -146,18 +146,23 @@ function AgentMessage({ message }) {
       </div>
 
       <div className="bg-surface-container border-2 border-[#1e1b13] brutalist-shadow overflow-hidden">
-        {doneSteps.length > 0 && (
-          <div className="px-4 xl:px-5 2xl:px-6 pt-3 xl:pt-4 pb-1">
-            {doneSteps.map((step, i) => (
-              <CollapsedStep
-                key={i}
-                step={step}
-                expanded={expandedSteps.has(i)}
-                onToggle={() => toggleStep(i)}
-              />
-            ))}
-          </div>
-        )}
+        {(() => {
+          // When no active step, the last done step is always shown full-width
+          // below — don't include it in the collapsible list.
+          const collapsibleSteps = activeStep ? doneSteps : doneSteps.slice(0, -1);
+          return collapsibleSteps.length > 0 && (
+            <div className="px-4 xl:px-5 2xl:px-6 pt-3 xl:pt-4 pb-1">
+              {collapsibleSteps.map((step, i) => (
+                <CollapsedStep
+                  key={i}
+                  step={step}
+                  expanded={expandedSteps.has(i)}
+                  onToggle={() => toggleStep(i)}
+                />
+              ))}
+            </div>
+          );
+        })()}
 
         {activeStep && (
           <div className={`p-5 xl:p-6 2xl:p-8 ${doneSteps.length > 0 ? "border-t-2 border-[#1e1b13] border-opacity-10" : ""}`}>
@@ -175,16 +180,11 @@ function AgentMessage({ message }) {
           </div>
         )}
 
-        {!activeStep && doneSteps.length > 0 && (() => {
-          const last = doneSteps[doneSteps.length - 1];
-          const lastIdx = doneSteps.length - 1;
-          if (expandedSteps.has(lastIdx)) return null;
-          return (
-            <div className={`p-5 xl:p-6 2xl:p-8 ${doneSteps.length > 1 ? "border-t-2 border-[#1e1b13] border-opacity-10" : ""}`}>
-              <MarkdownContent content={last.content} />
-            </div>
-          );
-        })()}
+        {!activeStep && doneSteps.length > 0 && (
+          <div className={`p-5 xl:p-6 2xl:p-8 ${doneSteps.length > 1 ? "border-t-2 border-[#1e1b13] border-opacity-10" : ""}`}>
+            <MarkdownContent content={doneSteps[doneSteps.length - 1].content} />
+          </div>
+        )}
       </div>
     </div>
   );
