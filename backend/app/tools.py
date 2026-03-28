@@ -436,6 +436,7 @@ name: Deploy
 on:
   push:
     branches: [{default_branch}]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -462,13 +463,110 @@ jobs:
           VITE_SENTRY_DSN: ${{{{ secrets.SENTRY_DSN }}}}
 
       - uses: google-github-actions/auth@v3
+        id: auth
         with:
           project_id: {project_id}
           workload_identity_provider: {wif_provider}
           service_account: {service_account}
 
-      - run: npx firebase-tools@latest hosting:channel:deploy live --project {project_id} --site {site_id} --json
+      - run: npx firebase-tools@latest deploy --only hosting:{site_id} --project {project_id} --non-interactive --json
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{{{ steps.auth.outputs.credentials_file_path }}}}
 """
+
+FIREBASE_JSON_TEMPLATE = """\
+{{
+  "hosting": {{
+    "site": "{site_id}",
+    "public": "dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {{
+        "source": "**",
+        "destination": "/index.html"
+      }}
+    ]
+  }}
+}}
+"""
+
+FIREBASERC_TEMPLATE = """\
+{{
+  "projects": {{
+    "default": "{project_id}"
+  }}
+}}
+"""
+
+
+def _commit_files(
+    repo_full_name: str,
+    files: dict[str, str],
+    message: str,
+    branch: str,
+    headers: dict,
+) -> tuple[bool, str]:
+    """Create a single commit with multiple files using the Git Trees API.
+    files: {path: content} mapping.
+    Returns (success, error_msg).
+    """
+    api = f"https://api.github.com/repos/{repo_full_name}"
+
+    # Get the SHA of the branch head
+    ref_resp = httpx.get(f"{api}/git/ref/heads/{branch}", headers=headers)
+    if ref_resp.status_code >= 400:
+        return False, f"Failed to get branch ref: {ref_resp.text}"
+    head_sha = ref_resp.json()["object"]["sha"]
+
+    # Create blobs for each file
+    tree_items = []
+    for path, content in files.items():
+        blob_resp = httpx.post(
+            f"{api}/git/blobs",
+            headers=headers,
+            json={"content": content, "encoding": "utf-8"},
+        )
+        if blob_resp.status_code >= 400:
+            return False, f"Failed to create blob for {path}: {blob_resp.text}"
+        tree_items.append({
+            "path": path,
+            "mode": "100644",
+            "type": "blob",
+            "sha": blob_resp.json()["sha"],
+        })
+
+    # Create tree
+    tree_resp = httpx.post(
+        f"{api}/git/trees",
+        headers=headers,
+        json={"base_tree": head_sha, "tree": tree_items},
+    )
+    if tree_resp.status_code >= 400:
+        return False, f"Failed to create tree: {tree_resp.text}"
+
+    # Create commit
+    commit_resp = httpx.post(
+        f"{api}/git/commits",
+        headers=headers,
+        json={
+            "message": message,
+            "tree": tree_resp.json()["sha"],
+            "parents": [head_sha],
+        },
+    )
+    if commit_resp.status_code >= 400:
+        return False, f"Failed to create commit: {commit_resp.text}"
+
+    # Update branch ref
+    update_resp = httpx.patch(
+        f"{api}/git/refs/heads/{branch}",
+        headers=headers,
+        json={"sha": commit_resp.json()["sha"]},
+    )
+    if update_resp.status_code >= 400:
+        return False, f"Failed to update ref: {update_resp.text}"
+
+    return True, ""
 
 
 DEPLOY_REGISTRY_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "deploy_registry.json")
@@ -657,7 +755,9 @@ def _setup_deploy(
         else:
             return json.dumps({"error": "Repo template population timed out after 30s"})
 
-        workflow_path = ".github/workflows/deploy.yml"
+        # Create/update firebase.json, .firebaserc, and deploy workflow in a single commit
+        firebase_json = FIREBASE_JSON_TEMPLATE.format(site_id=site_id)
+        firebaserc = FIREBASERC_TEMPLATE.format(project_id=GCP_PROJECT)
         workflow_content = DEPLOY_WORKFLOW.format(
             project_id=GCP_PROJECT,
             site_id=site_id,
@@ -665,30 +765,23 @@ def _setup_deploy(
             service_account=FIREBASE_SA_EMAIL,
             default_branch=default_branch,
         )
-        encoded_content = b64encode(workflow_content.encode()).decode()
 
-        # Check if file already exists (need sha to update)
-        existing = httpx.get(
-            f"https://api.github.com/repos/{repo_full_name}/contents/{workflow_path}",
-            headers=gh_headers,
+        ok, err = _commit_files(
+            repo_full_name,
+            {
+                "firebase.json": firebase_json,
+                ".firebaserc": firebaserc,
+                ".github/workflows/deploy.yml": workflow_content,
+            },
+            "ci: configure Firebase Hosting deploy",
+            default_branch,
+            gh_headers,
         )
-        payload = {
-            "message": "ci: configure Firebase Hosting deploy",
-            "content": encoded_content,
-        }
-        if existing.status_code == 200:
-            payload["sha"] = existing.json()["sha"]
-
-        resp = httpx.put(
-            f"https://api.github.com/repos/{repo_full_name}/contents/{workflow_path}",
-            headers=gh_headers,
-            json=payload,
-        )
-        if resp.status_code < 300:
-            steps.append({"step": "update_workflow", "status": "success"})
+        if ok:
+            steps.append({"step": "configure_firebase_deploy", "status": "success"})
         else:
-            logger.error("Workflow update failed (%d): %s", resp.status_code, resp.text)
-            return json.dumps({"error": f"Failed to update deploy workflow: {resp.text}"})
+            logger.error("Firebase deploy config failed: %s", err)
+            return json.dumps({"error": f"Failed to configure Firebase deploy: {err}"})
     except Exception as e:
         logger.error("Workflow update error: %s", e)
         return json.dumps({"error": f"Failed to update deploy workflow: {e}"})
@@ -729,11 +822,27 @@ def _setup_deploy(
     except Exception as e:
         logger.error("Deploy registry save error: %s", e)
 
+    # 6. Trigger first deploy
+    try:
+        dispatch_resp = httpx.post(
+            f"https://api.github.com/repos/{repo_full_name}/actions/workflows/deploy.yml/dispatches",
+            headers=gh_headers,
+            json={"ref": default_branch},
+        )
+        if dispatch_resp.status_code < 300:
+            steps.append({"step": "trigger_first_deploy", "status": "success"})
+        else:
+            logger.error("Workflow dispatch failed (%d): %s", dispatch_resp.status_code, dispatch_resp.text)
+            steps.append({"step": "trigger_first_deploy", "status": "error", "reason": dispatch_resp.text})
+    except Exception as e:
+        logger.error("Workflow dispatch error: %s", e)
+        steps.append({"step": "trigger_first_deploy", "status": "error", "reason": str(e)})
+
     return json.dumps({
         "status": "success",
         "site_url": site_url,
         "steps": steps,
-        "message": f"Deploy configured. Every push to main will deploy to {site_url}. Errors are tracked via Sentry.",
+        "message": f"Deploy configured and first deploy triggered. Every push to main will deploy to {site_url}. Errors are tracked via Sentry.",
     })
 
 
