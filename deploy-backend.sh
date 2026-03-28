@@ -7,9 +7,9 @@ gcloud run deploy orchestrator \
   --source . \
   --region us-central1 \
   --timeout 3600 \
-  --memory 512Mi \
+  --memory 1Gi \
   --cpu 1 \
   --max-instances 2 \
   --allow-unauthenticated \
-  --set-env-vars "LLM_MODEL=${LLM_MODEL:-google/gemini-2.0-flash-001}" \
-  --set-secrets "OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest"
+  --set-env-vars "LLM_MODEL=${LLM_MODEL:-google/gemini-2.0-flash-001},GITHUB_ORG=${GITHUB_ORG:-plumberito},GCP_PROJECT=${GCP_PROJECT},GCP_REGION=${GCP_REGION:-us-central1}" \
+  --set-secrets "OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest,GITHUB_TOKEN=GITHUB_TOKEN:latest,PULUMI_ACCESS_TOKEN=PULUMI_ACCESS_TOKEN:latest"

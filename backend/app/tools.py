@@ -5,6 +5,8 @@ from base64 import b64decode
 
 from github import Github
 
+from app.infra import _provision_infrastructure, _destroy_infrastructure
+
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_ORG = os.environ.get("GITHUB_ORG", "")
 
@@ -128,6 +130,63 @@ TOOLS = [
                     },
                 },
                 "required": ["repo_full_name", "new_owner"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "provision_infrastructure",
+            "description": "Provision GCP infrastructure using Pulumi. Creates or updates a stack of resources. Returns outputs (URLs, resource names) when complete. This operation may take 30-120 seconds.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_name": {
+                        "type": "string",
+                        "description": "Short kebab-case name for the project (e.g. 'my-landing-page'). Used as Pulumi project and stack identifier.",
+                    },
+                    "resources": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["cloud_run_service", "cloud_storage_bucket"],
+                                    "description": "The type of GCP resource to create.",
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "Resource name (lowercase, hyphens allowed).",
+                                },
+                                "config": {
+                                    "type": "object",
+                                    "description": "Resource-specific configuration. For cloud_run_service: {image, port, env_vars, memory, cpu, allow_unauthenticated}. For cloud_storage_bucket: {location}.",
+                                },
+                            },
+                            "required": ["type", "name"],
+                        },
+                        "description": "List of GCP resources to provision.",
+                    },
+                },
+                "required": ["project_name", "resources"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "destroy_infrastructure",
+            "description": "Destroy all infrastructure in a previously provisioned Pulumi stack. Use this to clean up resources.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_name": {
+                        "type": "string",
+                        "description": "The project name used when provisioning (same as the Pulumi stack identifier).",
+                    },
+                },
+                "required": ["project_name"],
             },
         },
     },
@@ -337,6 +396,8 @@ TOOL_DISPATCH = {
     "read_repo": _read_repo,
     "create_repo": _create_repo,
     "transfer_repo": _transfer_repo,
+    "provision_infrastructure": _provision_infrastructure,
+    "destroy_infrastructure": _destroy_infrastructure,
 }
 
 
