@@ -8,25 +8,26 @@ function MarkdownContent({ content, className = "" }) {
     <div className={`prose prose-sm max-w-none ${className}`}>
       <ReactMarkdown
         components={{
-          code({ inline, className, children, ...props }) {
-            const lang = /language-(\w+)/.exec(className || "")?.[1] || "";
-            if (inline) {
-              return (
-                <code
-                  className="bg-[#1e1b13] bg-opacity-15 text-[#1e1b13] font-mono text-[0.85em] px-1 py-0.5 rounded-sm"
-                  {...props}
-                >
-                  {children}
-                </code>
-              );
-            }
+          pre({ children }) {
+            const child = Array.isArray(children) ? children[0] : children;
+            const lang = /language-(\w+)/.exec(child?.props?.className || "")?.[1] || "";
             return (
               <div className="bg-[#1e1b13] p-4 xl:p-5 2xl:p-6 text-primary font-mono text-xs xl:text-sm leading-relaxed overflow-x-auto mt-3 not-prose">
                 <div className="text-white mb-2 opacity-50 uppercase text-[10px] xl:text-xs tracking-widest border-b border-white border-opacity-20 pb-1">
                   {lang || "code"}
                 </div>
-                <pre className="whitespace-pre-wrap break-words text-[#fff8ef]">{children}</pre>
+                <pre className="whitespace-pre-wrap break-words text-[#fff8ef]">{child?.props?.children ?? children}</pre>
               </div>
+            );
+          },
+          code({ className, children, ...props }) {
+            return (
+              <code
+                className="bg-[#1e1b13] bg-opacity-15 text-[#1e1b13] font-mono text-[0.85em] px-1 py-0.5 rounded-sm"
+                {...props}
+              >
+                {children}
+              </code>
             );
           },
           p({ children }) {
