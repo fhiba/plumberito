@@ -3,7 +3,7 @@ import Header from "./components/Header";
 import ChatMessage from "./components/ChatMessage";
 import CommandInput from "./components/CommandInput";
 import { LeftPanel, RightPanel } from "./components/SidePanel";
-import { useWebSocket } from "./hooks/useWebSocket";
+import { useSSEChat } from "./hooks/useSSEChat";
 
 function timestamp() {
   return new Date().toLocaleTimeString("en-US", {
@@ -30,64 +30,60 @@ export default function App() {
     completion_tokens: 0,
     cost_usd: null,
   });
-  const [agentBusy, setAgentBusy] = useState(false);
   const bottomRef = useRef(null);
-  const streamingIdRef = useRef(null);
+  // ID of the single agent bubble for the current turn — reset on each new prompt
+  const agentMsgIdRef = useRef(null);
 
   const handleMessage = useCallback((data) => {
     const ts = timestamp();
 
     switch (data.type) {
-      case "agent_start":
-        setAgentBusy(true);
-        break;
-
       case "agent_step": {
-        const id = `step-${Date.now()}`;
-        streamingIdRef.current = id;
-        setMessages((prev) => [
-          ...prev,
-          {
-            id,
-            role: "agent",
-            step: data.step,
-            action: data.action,
-            title: data.title,
-            content: data.content || "",
-            streaming: true,
-            timestamp: ts,
-          },
-        ]);
+        const id = agentMsgIdRef.current;
+        const newStep = { step: data.step, action: data.action, title: data.title, content: "", done: false };
+        setMessages((prev) => {
+          const exists = prev.some((m) => m.id === id);
+          if (exists) {
+            return prev.map((m) => {
+              if (m.id !== id) return m;
+              // mark all previous steps as done, append new one
+              const steps = m.steps.map((s) => ({ ...s, done: true }));
+              return { ...m, steps: [...steps, newStep] };
+            });
+          }
+          return [...prev, { id, role: "agent", steps: [newStep], timestamp: ts }];
+        });
         break;
       }
 
       case "agent_stream": {
+        const id = agentMsgIdRef.current;
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === streamingIdRef.current
-              ? { ...m, content: m.content + (data.delta || "") }
-              : m
-          )
+          prev.map((m) => {
+            if (m.id !== id) return m;
+            const steps = [...m.steps];
+            const last = { ...steps[steps.length - 1], content: steps[steps.length - 1].content + (data.delta || "") };
+            steps[steps.length - 1] = last;
+            return { ...m, steps };
+          })
         );
         break;
       }
 
-      case "agent_step_done": {
+      case "agent_step_done":
+      case "agent_done": {
+        const id = agentMsgIdRef.current;
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === streamingIdRef.current ? { ...m, streaming: false } : m
-          )
+          prev.map((m) => {
+            if (m.id !== id) return m;
+            const steps = m.steps.map((s) => ({ ...s, done: true }));
+            return { ...m, steps };
+          })
         );
-        streamingIdRef.current = null;
         break;
       }
-
-      case "agent_done":
-        setAgentBusy(false);
-        break;
 
       case "agent_error":
-        setAgentBusy(false);
         setMessages((prev) => [
           ...prev,
           {
@@ -100,7 +96,6 @@ export default function App() {
         break;
 
       default:
-        // Unknown message type — ignore
         break;
     }
   }, []);
@@ -118,7 +113,7 @@ export default function App() {
     }));
   }, []);
 
-  const { connected, send } = useWebSocket({
+  const { streaming, send } = useSSEChat({
     onMessage: handleMessage,
     onTokenUpdate: handleTokenUpdate,
   });
@@ -129,49 +124,30 @@ export default function App() {
 
   function handleSubmit(prompt) {
     const ts = timestamp();
-
+    agentMsgIdRef.current = `agent-${Date.now()}`;
     setMessages((prev) => [
       ...prev,
-      {
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: prompt,
-        timestamp: ts,
-      },
+      { id: `user-${Date.now()}`, role: "user", content: prompt, timestamp: ts },
     ]);
-
-    const sent = send({ type: "prompt", content: prompt });
-
-    if (!sent) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `err-${Date.now()}`,
-          role: "system",
-          content: "ERROR: Not connected to backend. Retrying...",
-          timestamp: ts,
-        },
-      ]);
-    } else {
-      setAgentBusy(true);
-    }
+    send(prompt);
   }
+
+  const agentMsgExists = messages.some((m) => m.id === agentMsgIdRef.current && m.steps?.length > 0);
 
   return (
     <div className="flex flex-col h-screen bg-background text-[#1e1b13] font-body overflow-hidden">
-      <Header tokenUsage={tokenUsage} connected={connected} />
+      <Header tokenUsage={tokenUsage} streaming={streaming} />
 
-      <main className="flex-1 mt-16 flex overflow-hidden bg-surface">
+      <main className="flex-1 mt-16 xl:mt-20 2xl:mt-24 flex overflow-hidden bg-surface">
         <LeftPanel />
 
-        {/* Center: chat + input */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <section className="flex-1 overflow-y-auto p-8 space-y-10 scrollbar-thin">
+          <section className="flex-1 overflow-y-auto p-8 xl:p-12 2xl:p-16 space-y-10 xl:space-y-12 2xl:space-y-16 scrollbar-thin">
             {messages.map((msg) => (
               <ChatMessage key={msg.id} message={msg} />
             ))}
 
-            {agentBusy && !streamingIdRef.current && (
+            {streaming && !agentMsgExists && (
               <div className="flex flex-col max-w-3xl">
                 <div className="flex items-center gap-2 mb-3">
                   <span className="bg-primary-container text-white px-2 py-0.5 text-[10px] font-black uppercase tracking-tighter font-label">
@@ -194,13 +170,12 @@ export default function App() {
             <div ref={bottomRef} />
           </section>
 
-          <CommandInput onSubmit={handleSubmit} disabled={agentBusy} />
+          <CommandInput onSubmit={handleSubmit} disabled={streaming} />
         </div>
 
         <RightPanel />
       </main>
 
-      {/* Overlay noise */}
       <div className="fixed inset-0 pointer-events-none opacity-[0.03] mix-blend-multiply z-[100] hatch-pattern" />
     </div>
   );

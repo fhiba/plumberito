@@ -40,17 +40,17 @@ export default function CommandInput({ onSubmit, disabled }) {
 
   return (
     <div
-      className="w-full border-t-4 border-[#1e1b13] p-6 bg-surface-container-low"
+      className="w-full border-t-4 border-[#1e1b13] p-6 xl:p-8 2xl:p-10 bg-surface-container-low"
       style={{ backgroundImage: "repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(30, 27, 19, 0.02) 10px, rgba(30, 27, 19, 0.02) 20px)" }}
     >
-      <form onSubmit={handleSubmit} className="max-w-3xl mx-auto flex flex-col gap-2">
-        <label className="text-[10px] font-black uppercase tracking-[0.3em] text-[#1e1b13] flex items-center gap-2 font-label">
-          <span className="material-symbols-outlined text-xs">keyboard</span>
+      <form onSubmit={handleSubmit} className="max-w-3xl xl:max-w-4xl 2xl:max-w-5xl mx-auto flex flex-col gap-2 xl:gap-3">
+        <label className="text-[10px] xl:text-xs 2xl:text-sm font-black uppercase tracking-[0.3em] text-[#1e1b13] flex items-center gap-2 font-label">
+          <span className="material-symbols-outlined text-xs xl:text-sm">keyboard</span>
           COMMAND_INPUT_PROMPT
         </label>
         <div className="flex gap-3 items-stretch">
           <textarea
-            className="flex-grow bg-surface border-2 border-[#1e1b13] px-4 py-3 font-mono text-sm placeholder:opacity-30 focus:outline-none focus:border-primary-container resize-none transition-none brutalist-shadow"
+            className="flex-grow bg-surface border-2 border-[#1e1b13] px-4 xl:px-5 py-3 xl:py-4 font-mono text-sm xl:text-base 2xl:text-lg placeholder:opacity-30 focus:outline-none focus:border-primary-container resize-none transition-none brutalist-shadow"
             style={buttonExiting ? { animation: `textareaRebound ${ANIM_DURATION}ms cubic-bezier(0.22, 1, 0.36, 1) both` } : undefined}
             placeholder="TYPE_COMMAND_HERE..."
             value={value}
@@ -63,7 +63,7 @@ export default function CommandInput({ onSubmit, disabled }) {
             <button
               type="submit"
               style={{ animation: `${buttonExiting ? "stampOut" : "stampIn"} ${ANIM_DURATION}ms cubic-bezier(0.22, 1, 0.36, 1) both` }}
-              className="bg-primary-container text-white border-2 border-[#1e1b13] px-8 font-headline font-black uppercase tracking-widest text-sm brutalist-shadow hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-none active:bg-primary"
+              className="bg-primary-container text-white border-2 border-[#1e1b13] px-8 xl:px-10 2xl:px-14 font-headline font-black uppercase tracking-widest text-sm xl:text-base 2xl:text-lg brutalist-shadow hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-none active:bg-primary"
             >
               EXECUTE
             </button>

@@ -42,6 +42,9 @@ export default {
         label: ["Space Grotesk", "sans-serif"],
         mono: ["JetBrains Mono", "monospace"],
       },
+      screens: {
+        "3xl": "1920px",
+      },
       borderRadius: {
         DEFAULT: "0px",
         none: "0px",
