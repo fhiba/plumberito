@@ -6,14 +6,14 @@ Construido para HackITBA 2026.
 
 ## Qué hace
 
-El usuario describe lo que quiere construir. Plumberito lo convierte en un plan de acciones y lo ejecuta secuencialmente: genera el código, crea el repositorio, provisiona la infraestructura y hace el deploy. Cada paso se muestra en tiempo real en el frontend vía WebSocket.
+El usuario describe lo que quiere construir. Plumberito lo convierte en un plan de acciones y lo ejecuta secuencialmente: genera el código, crea el repositorio, provisiona la infraestructura y hace el deploy. Cada paso se muestra en tiempo real en el frontend vía SSE.
 
 ## Arquitectura
 
 ```
 [Frontend - React/Vite en Firebase Hosting]
     │
-    │ WebSocket
+    │ HTTP + SSE
     ▼
 [Backend - Python/FastAPI en GCP Cloud Run]
     │
@@ -35,7 +35,7 @@ El usuario describe lo que quiere construir. Plumberito lo convierte en un plan 
 | LLM gateway | OpenRouter |
 | IaC | Pulumi (Python SDK) |
 | Repositorios | GitHub REST API v3 |
-| Comunicación real-time | WebSocket |
+| Comunicación real-time | SSE (Server-Sent Events) |
 
 ## Estructura del repo
 
@@ -49,7 +49,7 @@ plumberito/
 │   │   │   ├── CommandInput.jsx # Input con animaciones de entrada/salida
 │   │   │   └── SidePanel.jsx    # Paneles laterales con info de sesión
 │   │   ├── hooks/
-│   │   │   └── useWebSocket.js  # Conexión WS con reconexión automática
+│   │   │   └── useWebSocket.js  # Conexión SSE con reconexión automática
 │   │   └── App.jsx              # Estado central y layout
 │   └── firebase.json            # Config Firebase Hosting
 ├── docs/                        # Arquitectura y rúbrica del hackathon
@@ -60,7 +60,7 @@ plumberito/
 
 ```bash
 cd frontend
-cp .env.example .env.local       # configurar VITE_WS_URL
+cp .env.example .env.local       # configurar VITE_BACKEND_URL
 npm install
 npm run dev
 ```
@@ -72,9 +72,9 @@ npm run build
 firebase deploy --only hosting
 ```
 
-## Protocolo WebSocket
+## Protocolo SSE
 
-El backend debe emitir los siguientes tipos de mensaje:
+El backend streamea eventos en el formato `text/event-stream`. Cada evento es un JSON con los siguientes tipos:
 
 ```json
 { "type": "agent_start" }
