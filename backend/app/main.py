@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from openai import OpenAI
 
 from app.auth import router as auth_router
+from app.webhooks import router as webhooks_router
 from app.tools import GITHUB_ORG, TOOLS, execute_tool
 
 logging.basicConfig(
@@ -30,6 +31,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(webhooks_router)
 
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
@@ -49,16 +51,21 @@ SYSTEM_PROMPT = (
     "2. Read the README of candidate templates with read_repo to understand what each one provides\n"
     "3. Recommend the best match and confirm with the user\n"
     "4. Call create_repo with the chosen template_repo and desired repo_name — this creates the repo directly in the user's GitHub account\n"
-    "5. Share the repo URL with the user — they own it and can start working immediately\n\n"
-    "When the user wants to deploy or provision infrastructure:\n"
-    "1. Understand what the user wants to deploy (a web app, an API, a static site, storage, etc.)\n"
+    "5. After creating the repo, offer to set up automatic deployment\n"
+    "6. If the user accepts, call setup_deploy with the repo_full_name and use the repo name as site_id\n"
+    "7. Share the repo URL and the live site URL (https://{site_id}.web.app) with the user\n\n"
+    "When the user wants to deploy a frontend project (or when you offer after create_repo):\n"
+    "1. Call setup_deploy with the repo_full_name and a site_id (use the repo name)\n"
+    "2. This creates a Firebase Hosting site, updates the CI/CD workflow, and configures secrets automatically\n"
+    "3. Tell the user their site will be live at https://{site_id}.web.app after pushing to main\n\n"
+    "When the user wants to provision other GCP infrastructure:\n"
+    "1. Understand what the user wants to deploy (an API, storage, etc.)\n"
     "2. Determine the appropriate GCP resources: cloud_run_service for containerized apps, cloud_storage_bucket for storage/static files\n"
     "3. Call provision_infrastructure with a descriptive project_name and the list of resources\n"
     "4. Report the outputs (URLs, resource names) back to the user\n"
     "5. If the user wants to tear down resources, use destroy_infrastructure\n\n"
     "For Cloud Run deployments, you need a container image. Ask the user for the image URL "
     "(e.g. from Artifact Registry or Docker Hub). If none is provided, use the default hello-world image for demo purposes.\n"
-    "For simple storage needs, use cloud_storage_bucket.\n"
 )
 
 

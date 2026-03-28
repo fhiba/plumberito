@@ -1,14 +1,26 @@
 import asyncio
 import json
+import logging
 import os
-from base64 import b64decode
+from base64 import b64decode, b64encode
 
 from github import Github
+import httpx
+from nacl import encoding, public
 
 from app.infra import _provision_infrastructure, _destroy_infrastructure
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_ORG = os.environ.get("GITHUB_ORG", "")
+GCP_PROJECT = os.environ.get("GCP_PROJECT", "")
+GCP_PROJECT_NUMBER = os.environ.get("GCP_PROJECT_NUMBER", "")
+WIF_PROVIDER = os.environ.get("WIF_PROVIDER", "")  # projects/NUM/locations/global/workloadIdentityPools/github/providers/github-actions
+FIREBASE_SA_EMAIL = os.environ.get("FIREBASE_SA_EMAIL", "")  # firebase-deployer@PROJECT.iam.gserviceaccount.com
+SENTRY_AUTH_TOKEN = os.environ.get("SENTRY_AUTH_TOKEN", "")
+SENTRY_ORG = os.environ.get("SENTRY_ORG", "plumberito")
+SENTRY_TEAM = os.environ.get("SENTRY_TEAM", "projects")
+
+logger = logging.getLogger("plumberito")
 
 
 NOISE_DIRS = {"node_modules", ".venv", "__pycache__", "dist", "build", ".next", ".git", ".tox", "venv", "env"}
@@ -109,6 +121,27 @@ TOOLS = [
                     },
                 },
                 "required": ["repo_name", "template_repo"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "setup_deploy",
+            "description": "Configure automatic deployment for a frontend repository. Creates a Firebase Hosting site, updates the deploy workflow in the repo, and sets up GitHub secrets. Call this after create_repo when the user wants their frontend deployed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo_full_name": {
+                        "type": "string",
+                        "description": "Full repository name in owner/repo format",
+                    },
+                    "site_id": {
+                        "type": "string",
+                        "description": "Firebase Hosting site ID (lowercase, hyphens). Use the repo name.",
+                    },
+                },
+                "required": ["repo_full_name", "site_id"],
             },
         },
     },
@@ -346,16 +379,375 @@ def _create_repo(
     })
 
 
+def _get_gcp_access_token() -> str:
+    """Get a GCP access token using Application Default Credentials."""
+    import google.auth
+    import google.auth.transport.requests
+
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/firebase"],
+    )
+    credentials.refresh(google.auth.transport.requests.Request())
+    return credentials.token
+
+
+def _encrypt_secret(public_key: str, secret_value: str) -> str:
+    """Encrypt a secret value using the repo's public key (for GitHub Actions secrets)."""
+    pk = public.PublicKey(public_key.encode("utf-8"), encoding.Base64Encoder())
+    sealed_box = public.SealedBox(pk)
+    encrypted = sealed_box.encrypt(secret_value.encode("utf-8"))
+    return b64encode(encrypted).decode("utf-8")
+
+
+def _set_github_secret(repo_full_name: str, secret_name: str, secret_value: str, token: str):
+    """Create or update a GitHub Actions secret in a repo."""
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    # Get the repo's public key for secret encryption
+    pk_resp = httpx.get(
+        f"https://api.github.com/repos/{repo_full_name}/actions/secrets/public-key",
+        headers=headers,
+    )
+    if pk_resp.status_code >= 400:
+        raise RuntimeError(f"Failed to get public key: {pk_resp.text}")
+
+    pk_data = pk_resp.json()
+    encrypted_value = _encrypt_secret(pk_data["key"], secret_value)
+
+    # Set the secret
+    resp = httpx.put(
+        f"https://api.github.com/repos/{repo_full_name}/actions/secrets/{secret_name}",
+        headers=headers,
+        json={
+            "encrypted_value": encrypted_value,
+            "key_id": pk_data["key_id"],
+        },
+    )
+    if resp.status_code >= 300:
+        raise RuntimeError(f"Failed to set secret {secret_name}: {resp.text}")
+
+
+DEPLOY_WORKFLOW = """\
+name: Deploy
+
+on:
+  push:
+    branches: [{default_branch}]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+        env:
+          VITE_SENTRY_DSN: ${{{{ secrets.SENTRY_DSN }}}}
+
+      - uses: google-github-actions/auth@v3
+        with:
+          project_id: {project_id}
+          workload_identity_provider: {wif_provider}
+          service_account: {service_account}
+
+      - run: npx firebase-tools@latest hosting:channel:deploy live --project {project_id} --site {site_id} --json
+"""
+
+
+DEPLOY_REGISTRY_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "deploy_registry.json")
+
+
+def _load_deploy_registry() -> dict:
+    try:
+        with open(DEPLOY_REGISTRY_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_deploy_registry(registry: dict):
+    os.makedirs(os.path.dirname(DEPLOY_REGISTRY_PATH), exist_ok=True)
+    with open(DEPLOY_REGISTRY_PATH, "w") as f:
+        json.dump(registry, f, indent=2)
+
+
+def _create_sentry_project(site_id: str) -> str | None:
+    """Create a Sentry project and return the public DSN."""
+    sentry_headers = {
+        "Authorization": f"Bearer {SENTRY_AUTH_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    # Create project
+    resp = httpx.post(
+        f"https://sentry.io/api/0/teams/{SENTRY_ORG}/{SENTRY_TEAM}/projects/",
+        headers=sentry_headers,
+        json={"name": site_id, "platform": "javascript"},
+    )
+    if resp.status_code >= 400 and "already exists" not in resp.text.lower():
+        logger.error("Sentry project creation failed (%d): %s", resp.status_code, resp.text)
+        return None
+
+    # Get DSN
+    keys_resp = httpx.get(
+        f"https://sentry.io/api/0/projects/{SENTRY_ORG}/{site_id}/keys/",
+        headers=sentry_headers,
+    )
+    if keys_resp.status_code >= 400:
+        logger.error("Sentry keys fetch failed (%d): %s", keys_resp.status_code, keys_resp.text)
+        return None
+
+    keys = keys_resp.json()
+    if keys:
+        return keys[0].get("dsn", {}).get("public")
+    return None
+
+
+def _create_sentry_alert_rule(site_id: str):
+    """Create an alert rule that triggers on new issues."""
+    sentry_headers = {
+        "Authorization": f"Bearer {SENTRY_AUTH_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    httpx.post(
+        f"https://sentry.io/api/0/projects/{SENTRY_ORG}/{site_id}/rules/",
+        headers=sentry_headers,
+        json={
+            "name": "Notify on new issue",
+            "actionMatch": "any",
+            "filterMatch": "all",
+            "frequency": 30,
+            "conditions": [
+                {"id": "sentry.rules.conditions.first_seen_event.FirstSeenEventCondition"}
+            ],
+            "actions": [
+                {
+                    "id": "sentry.rules.actions.notify_event.NotifyEventAction",
+                }
+            ],
+        },
+    )
+
+
+def _grant_wif_access(repo_full_name: str):
+    """Add a repo to the WIF IAM binding on the Firebase SA (read-modify-write)."""
+    import google.auth
+    import google.auth.transport.requests
+
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+    credentials.refresh(google.auth.transport.requests.Request())
+    headers = {
+        "Authorization": f"Bearer {credentials.token}",
+        "Content-Type": "application/json",
+    }
+    sa_resource = f"projects/{GCP_PROJECT}/serviceAccounts/{FIREBASE_SA_EMAIL}"
+    role = "roles/iam.workloadIdentityUser"
+    member = (
+        f"principalSet://iam.googleapis.com/"
+        f"projects/{GCP_PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/"
+        f"attribute.repository/{repo_full_name}"
+    )
+
+    # Get current policy
+    get_resp = httpx.post(
+        f"https://iam.googleapis.com/v1/{sa_resource}:getIamPolicy",
+        headers=headers,
+        json={"options": {"requestedPolicyVersion": 3}},
+    )
+    get_resp.raise_for_status()
+    policy = get_resp.json()
+
+    # Find or create the WIF binding
+    bindings = policy.get("bindings", [])
+    wif_binding = next((b for b in bindings if b["role"] == role), None)
+    if wif_binding:
+        if member in wif_binding["members"]:
+            logger.info("WIF binding already exists for %s", repo_full_name)
+            return
+        wif_binding["members"].append(member)
+    else:
+        bindings.append({"role": role, "members": [member]})
+        policy["bindings"] = bindings
+
+    # Set updated policy
+    set_resp = httpx.post(
+        f"https://iam.googleapis.com/v1/{sa_resource}:setIamPolicy",
+        headers=headers,
+        json={"policy": policy},
+    )
+    set_resp.raise_for_status()
+    logger.info("Granted WIF access for %s", repo_full_name)
+
+
+def _setup_deploy(
+    repo_full_name: str,
+    site_id: str,
+    user_token: str | None = None,
+) -> str:
+    token = user_token or GITHUB_TOKEN
+    steps = []
+
+    # 0. Get repo's default branch
+    gh_headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    repo_resp = httpx.get(f"https://api.github.com/repos/{repo_full_name}", headers=gh_headers)
+    default_branch = "main"
+    if repo_resp.status_code == 200:
+        default_branch = repo_resp.json().get("default_branch", "main")
+
+    # 1. Create Firebase Hosting site
+    try:
+        gcp_token = _get_gcp_access_token()
+        site_resp = httpx.post(
+            f"https://firebasehosting.googleapis.com/v1beta1/projects/{GCP_PROJECT}/sites",
+            headers={
+                "Authorization": f"Bearer {gcp_token}",
+                "Content-Type": "application/json",
+            },
+            params={"siteId": site_id},
+            json={},
+        )
+        if site_resp.status_code < 300:
+            site_url = f"https://{site_id}.web.app"
+            steps.append({"step": "create_site", "status": "success", "url": site_url})
+        elif "already exists" in site_resp.text.lower():
+            site_url = f"https://{site_id}.web.app"
+            steps.append({"step": "create_site", "status": "already_exists", "url": site_url})
+        else:
+            logger.error("Firebase site creation failed (%d): %s", site_resp.status_code, site_resp.text)
+            return json.dumps({"error": f"Failed to create Firebase site: {site_resp.text}"})
+    except Exception as e:
+        logger.error("Firebase site creation error: %s", e)
+        return json.dumps({"error": f"Failed to create Firebase site: {e}"})
+
+    # 2. Update deploy.yml in the repo
+    import time
+    try:
+        # Wait for repo to have content (template population is async)
+        for attempt in range(10):
+            check = httpx.get(
+                f"https://api.github.com/repos/{repo_full_name}/contents/",
+                headers=gh_headers,
+            )
+            if check.status_code == 200:
+                break
+            logger.info("Repo not populated yet, waiting 3s... (attempt %d/10)", attempt + 1)
+            time.sleep(3)
+        else:
+            return json.dumps({"error": "Repo template population timed out after 30s"})
+
+        workflow_path = ".github/workflows/deploy.yml"
+        workflow_content = DEPLOY_WORKFLOW.format(
+            project_id=GCP_PROJECT,
+            site_id=site_id,
+            wif_provider=WIF_PROVIDER,
+            service_account=FIREBASE_SA_EMAIL,
+            default_branch=default_branch,
+        )
+        encoded_content = b64encode(workflow_content.encode()).decode()
+
+        # Check if file already exists (need sha to update)
+        existing = httpx.get(
+            f"https://api.github.com/repos/{repo_full_name}/contents/{workflow_path}",
+            headers=gh_headers,
+        )
+        payload = {
+            "message": "ci: configure Firebase Hosting deploy",
+            "content": encoded_content,
+        }
+        if existing.status_code == 200:
+            payload["sha"] = existing.json()["sha"]
+
+        resp = httpx.put(
+            f"https://api.github.com/repos/{repo_full_name}/contents/{workflow_path}",
+            headers=gh_headers,
+            json=payload,
+        )
+        if resp.status_code < 300:
+            steps.append({"step": "update_workflow", "status": "success"})
+        else:
+            logger.error("Workflow update failed (%d): %s", resp.status_code, resp.text)
+            return json.dumps({"error": f"Failed to update deploy workflow: {resp.text}"})
+    except Exception as e:
+        logger.error("Workflow update error: %s", e)
+        return json.dumps({"error": f"Failed to update deploy workflow: {e}"})
+
+    # 3. Grant WIF access for this repo to the Firebase SA
+    try:
+        _grant_wif_access(repo_full_name)
+        steps.append({"step": "grant_wif_access", "status": "success"})
+    except Exception as e:
+        logger.error("WIF IAM binding error: %s", e)
+        return json.dumps({"error": f"Failed to grant WIF access: {e}"})
+
+    # 4. Create Sentry project and set DSN
+    sentry_dsn = None
+    if SENTRY_AUTH_TOKEN:
+        try:
+            sentry_dsn = _create_sentry_project(site_id)
+            if sentry_dsn:
+                _set_github_secret(repo_full_name, "SENTRY_DSN", sentry_dsn, token)
+                _create_sentry_alert_rule(site_id)
+                steps.append({"step": "setup_sentry", "status": "success", "dsn": sentry_dsn})
+            else:
+                steps.append({"step": "setup_sentry", "status": "skipped", "reason": "Could not get DSN"})
+        except Exception as e:
+            logger.error("Sentry setup error: %s", e)
+            steps.append({"step": "setup_sentry", "status": "error", "reason": str(e)})
+
+    # 5. Save deploy registry
+    try:
+        registry = _load_deploy_registry()
+        registry[site_id] = {
+            "repo": repo_full_name,
+            "site_url": site_url,
+            "sentry_dsn": sentry_dsn,
+        }
+        _save_deploy_registry(registry)
+        steps.append({"step": "save_registry", "status": "success"})
+    except Exception as e:
+        logger.error("Deploy registry save error: %s", e)
+
+    return json.dumps({
+        "status": "success",
+        "site_url": site_url,
+        "steps": steps,
+        "message": f"Deploy configured. Every push to main will deploy to {site_url}. Errors are tracked via Sentry.",
+    })
+
+
 TOOL_DISPATCH = {
     "search_repos": _search_repos,
     "read_repo": _read_repo,
     "create_repo": _create_repo,
+    "setup_deploy": _setup_deploy,
     "provision_infrastructure": _provision_infrastructure,
     "destroy_infrastructure": _destroy_infrastructure,
 }
 
 # Tools that receive the user's GitHub token
-_USER_TOKEN_TOOLS = {"create_repo"}
+_USER_TOKEN_TOOLS = {"create_repo", "setup_deploy"}
 
 
 async def execute_tool(name: str, arguments: dict, github_token: str | None = None) -> str:

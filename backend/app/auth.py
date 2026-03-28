@@ -17,7 +17,7 @@ def github_login():
         f"https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_CLIENT_ID}"
         f"&redirect_uri={OAUTH_CALLBACK_URL}"
-        f"&scope=repo"
+        f"&scope=repo+workflow"
     )
 
 
