@@ -24,11 +24,13 @@ export default function CommandInput({ onSubmit, disabled }) {
     }
   }, [hasText]);
 
+  const MAX_LENGTH = 4000;
+
   function handleSubmit(e) {
     e.preventDefault();
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
-    onSubmit(trimmed);
+    onSubmit(trimmed.slice(0, MAX_LENGTH));
     setValue("");
   }
 
@@ -57,6 +59,7 @@ export default function CommandInput({ onSubmit, disabled }) {
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={2}
+            maxLength={4000}
             disabled={disabled}
           />
           {buttonMounted && (
