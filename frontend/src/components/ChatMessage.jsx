@@ -1,50 +1,92 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 const HARDCODED_USER = "COMMANDER";
 
-function CodeBlock({ code, lang }) {
+function MarkdownContent({ content, className = "" }) {
   return (
-    <div className="bg-[#1e1b13] p-4 xl:p-5 2xl:p-6 text-primary font-mono text-xs xl:text-sm leading-relaxed overflow-x-auto mt-3">
-      <div className="text-white mb-2 opacity-50 uppercase text-[10px] xl:text-xs tracking-widest border-b border-white border-opacity-20 pb-1">
-        {lang || "code"}
-      </div>
-      <pre className="whitespace-pre-wrap break-words">{code}</pre>
+    <div className={`prose prose-sm max-w-none ${className}`}>
+      <ReactMarkdown
+        components={{
+          code({ inline, className, children, ...props }) {
+            const lang = /language-(\w+)/.exec(className || "")?.[1] || "";
+            if (inline) {
+              return (
+                <code
+                  className="bg-[#1e1b13] bg-opacity-15 text-[#1e1b13] font-mono text-[0.85em] px-1 py-0.5 rounded-sm"
+                  {...props}
+                >
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <div className="bg-[#1e1b13] p-4 xl:p-5 2xl:p-6 text-primary font-mono text-xs xl:text-sm leading-relaxed overflow-x-auto mt-3 not-prose">
+                <div className="text-white mb-2 opacity-50 uppercase text-[10px] xl:text-xs tracking-widest border-b border-white border-opacity-20 pb-1">
+                  {lang || "code"}
+                </div>
+                <pre className="whitespace-pre-wrap break-words text-[#fff8ef]">{children}</pre>
+              </div>
+            );
+          },
+          p({ children }) {
+            return (
+              <p className="text-sm xl:text-base 2xl:text-lg font-medium leading-relaxed mb-2 last:mb-0">
+                {children}
+              </p>
+            );
+          },
+          h1({ children }) {
+            return (
+              <h1 className="font-headline font-black text-xl xl:text-2xl uppercase tracking-tighter mb-3 leading-none">
+                {children}
+              </h1>
+            );
+          },
+          h2({ children }) {
+            return (
+              <h2 className="font-headline font-black text-lg xl:text-xl uppercase tracking-tighter mb-2 leading-none">
+                {children}
+              </h2>
+            );
+          },
+          h3({ children }) {
+            return (
+              <h3 className="font-headline font-bold text-base xl:text-lg uppercase tracking-tight mb-2 leading-none">
+                {children}
+              </h3>
+            );
+          },
+          ul({ children }) {
+            return <ul className="list-disc list-inside space-y-1 my-2 text-sm xl:text-base">{children}</ul>;
+          },
+          ol({ children }) {
+            return <ol className="list-decimal list-inside space-y-1 my-2 text-sm xl:text-base">{children}</ol>;
+          },
+          li({ children }) {
+            return <li className="font-medium leading-relaxed">{children}</li>;
+          },
+          strong({ children }) {
+            return <strong className="font-black">{children}</strong>;
+          },
+          em({ children }) {
+            return <em className="italic opacity-80">{children}</em>;
+          },
+          blockquote({ children }) {
+            return (
+              <blockquote className="border-l-4 border-[#1e1b13] border-opacity-40 pl-3 my-2 opacity-70">
+                {children}
+              </blockquote>
+            );
+          },
+          hr() {
+            return <hr className="border-[#1e1b13] border-opacity-20 my-3" />;
+          },
+        }}
+      >
+        {content || ""}
+      </ReactMarkdown>
     </div>
-  );
-}
-
-function parseContent(content) {
-  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
-  const parts = [];
-  let lastIndex = 0;
-  let match;
-  while ((match = codeBlockRegex.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: "text", value: content.slice(lastIndex, match.index) });
-    }
-    parts.push({ type: "code", lang: match[1], value: match[2].trim() });
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < content.length) {
-    parts.push({ type: "text", value: content.slice(lastIndex) });
-  }
-  return parts;
-}
-
-function StepContent({ content }) {
-  const parts = parseContent(content || "");
-  return (
-    <>
-      {parts.map((part, i) =>
-        part.type === "code" ? (
-          <CodeBlock key={i} code={part.value} lang={part.lang} />
-        ) : (
-          <p key={i} className="text-sm xl:text-base 2xl:text-lg font-medium leading-relaxed">
-            {part.value}
-          </p>
-        )
-      )}
-    </>
   );
 }
 
@@ -67,7 +109,7 @@ function CollapsedStep({ step, expanded, onToggle }) {
       </button>
       {expanded && (
         <div className="px-1 pb-3 xl:pb-4 pt-1 opacity-50">
-          <StepContent content={step.content} />
+          <MarkdownContent content={step.content} />
         </div>
       )}
     </div>
@@ -128,7 +170,7 @@ function AgentMessage({ message }) {
                 {activeStep.title}
               </h2>
             )}
-            <StepContent content={activeStep.content} />
+            <MarkdownContent content={activeStep.content} />
           </div>
         )}
 
@@ -138,7 +180,7 @@ function AgentMessage({ message }) {
           if (expandedSteps.has(lastIdx)) return null;
           return (
             <div className={`p-5 xl:p-6 2xl:p-8 ${doneSteps.length > 1 ? "border-t-2 border-[#1e1b13] border-opacity-10" : ""}`}>
-              <StepContent content={last.content} />
+              <MarkdownContent content={last.content} />
             </div>
           );
         })()}
@@ -158,7 +200,7 @@ export default function ChatMessage({ message }) {
           <span className="text-[10px] xl:text-xs font-mono opacity-50">{message.timestamp}</span>
         </div>
         <div className="bg-surface p-5 xl:p-6 2xl:p-7 border-2 border-[#1e1b13] brutalist-shadow-sm max-w-xl xl:max-w-2xl 2xl:max-w-3xl text-right">
-          <p className="text-sm xl:text-base 2xl:text-lg font-bold break-words whitespace-pre-wrap">{message.content}</p>
+          <MarkdownContent content={message.content} className="text-right [&_p]:text-right [&_ul]:text-left [&_ol]:text-left" />
         </div>
       </div>
     );
@@ -174,7 +216,7 @@ export default function ChatMessage({ message }) {
           <span className="text-[10px] xl:text-xs font-mono opacity-50">{message.timestamp}</span>
         </div>
         <div className="bg-surface-container p-5 xl:p-6 2xl:p-8 border-2 border-[#1e1b13] brutalist-shadow">
-          <p className="text-sm xl:text-base 2xl:text-lg font-medium leading-relaxed opacity-70">{message.content}</p>
+          <MarkdownContent content={message.content} className="opacity-70" />
         </div>
       </div>
     );

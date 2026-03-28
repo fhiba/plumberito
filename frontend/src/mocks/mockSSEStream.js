@@ -43,6 +43,12 @@ const MOCK_STEPS = [
     title: "Deploying to target infrastructure.",
     content: "Build complete. Service live at: https://plumberito-demo.run.app",
   },
+  {
+    step: 6,
+    action: "REPORT",
+    title: "Mission summary.",
+    content: `## Deployment Complete\n\nAll systems are **operational**. Here's what was provisioned:\n\n- **Repository**: \`plumberito-demo\` on GitHub\n- **Backend**: Cloud Run service (2 vCPU, 512MB RAM)\n- **Storage**: S3 bucket with public-read ACL\n\n### Next Steps\n\n1. Push your first commit to \`main\`\n2. Monitor logs via \`gcloud run logs tail\`\n3. Set up *custom domain* in the Cloud Run console\n\n> Note: Free tier limits apply for the first 2M requests/month.\n\n\`\`\`bash\n# Tail live logs\ngcloud run services logs tail plumberito-demo --region=us-central1\n\`\`\`\n\nMission status: **SUCCESS** ✓`,
+  },
 ];
 
 export function createMockSSEStream(prompt) {
