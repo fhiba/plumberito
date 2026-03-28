@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PLUMBERITO | COMMAND_CENTER</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;800;900&amp;family=Inter:wght@400;700&amp;family=JetBrains+Mono:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-secondary-fixed-variant": "#474746",
+              "primary-fixed": "#ffdad4",
+              "primary-container": "#cc0000",
+              "secondary-fixed-dim": "#c8c6c5",
+              "on-surface-variant": "#5e3f3a",
+              "outline": "#926e69",
+              "tertiary-fixed": "#ede1ca",
+              "primary-fixed-dim": "#ffb4a8",
+              "secondary-container": "#e4e2e1",
+              "on-tertiary-container": "#eee1ca",
+              "surface-container-high": "#efe7da",
+              "secondary-fixed": "#e4e2e1",
+              "primary": "#9e0000",
+              "outline-variant": "#e8bdb6",
+              "on-primary": "#ffffff",
+              "on-tertiary": "#ffffff",
+              "error-container": "#ffdad6",
+              "on-surface": "#1e1b13",
+              "surface-container-lowest": "#ffffff",
+              "on-tertiary-fixed-variant": "#4d4635",
+              "on-error-container": "#93000a",
+              "on-secondary-fixed": "#1b1c1c",
+              "on-error": "#ffffff",
+              "error": "#ba1a1a",
+              "on-secondary": "#ffffff",
+              "on-primary-container": "#ffdad4",
+              "secondary": "#5f5e5e",
+              "surface-dim": "#e0d9cc",
+              "tertiary": "#544c3b",
+              "background": "#fff8ef",
+              "inverse-primary": "#ffb4a8",
+              "on-primary-fixed-variant": "#930000",
+              "surface-tint": "#c00000",
+              "surface": "#fff8ef",
+              "surface-container": "#f5ede0",
+              "on-tertiary-fixed": "#211b0d",
+              "on-background": "#1e1b13",
+              "surface-container-highest": "#e9e2d4",
+              "inverse-on-surface": "#f7f0e2",
+              "on-secondary-container": "#656464",
+              "tertiary-container": "#6c6452",
+              "surface-bright": "#fff8ef",
+              "tertiary-fixed-dim": "#d1c5af",
+              "surface-container-low": "#faf3e5",
+              "inverse-surface": "#333027",
+              "surface-variant": "#e9e2d4",
+              "on-primary-fixed": "#410000"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Inter"],
+              "label": ["Space Grotesk"],
+              "mono": ["JetBrains Mono"]
+            },
+            borderRadius: {"DEFAULT": "0px", "lg": "0px", "xl": "0px", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            background-repeat: repeat;
+            background-size: 200px;
+            opacity: 0.98;
+        }
+        .brutalist-shadow {
+            box-shadow: 4px 4px 0px 0px #1e1b13;
+        }
+        .brutalist-shadow-sm {
+            box-shadow: 2px 2px 0px 0px #1e1b13;
+        }
+        .hatch-pattern {
+            background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(30, 27, 19, 0.05) 10px, rgba(30, 27, 19, 0.05) 20px);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body overflow-hidden">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full border-b-4 border-[#1e1b13] dark:border-[#f5ede0] z-50 bg-[#fff8ef] dark:bg-[#1e1b13] flex justify-between items-center h-20 px-6 w-full">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-black uppercase tracking-tighter text-[#1e1b13] dark:text-[#f5ede0]">PLUMBERITO</span>
+<div class="hidden md:flex gap-6 font-['Space_Grotesk'] font-bold uppercase tracking-tighter text-sm">
+<span class="text-[#CC0000] font-black underline decoration-4 underline-offset-8">SYSTEM_STATUS: OPERATIONAL</span>
+<span class="text-[#1e1b13] dark:text-[#f5ede0] opacity-70">DOC_REF: PB-99</span>
+</div>
+</div>
+<button class="bg-primary-container text-on-primary font-['Space_Grotesk'] font-bold uppercase tracking-tighter text-sm px-4 py-2 border-2 border-[#1e1b13] hover:bg-[#CC0000] hover:text-white transition-none active:translate-x-1 active:translate-y-1">
+            REVOLUTIONARY ACTION
+        </button>
+</nav>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-20 h-[calc(100vh-80px)] w-64 border-r-4 border-[#1e1b13] dark:border-[#f5ede0] bg-[#f5ede0] dark:bg-[#2a261f] flex flex-col h-full overflow-y-auto z-40">
+<div class="p-6 border-b-4 border-on-surface">
+<div class="font-['Space_Grotesk'] font-bold uppercase text-xs tracking-widest text-[#CC0000]">COMMAND_CENTER</div>
+<div class="font-['Space_Grotesk'] font-bold uppercase text-[10px] tracking-[0.2em] opacity-60">SECTOR_01</div>
+</div>
+<nav class="flex-grow">
+<a class="bg-[#CC0000] text-white border-2 border-[#1e1b13] flex items-center p-4 w-full group" href="#">
+<span class="material-symbols-outlined mr-3" style="font-variation-settings: 'FILL' 1;">analytics</span>
+<span class="font-['Space_Grotesk'] font-bold uppercase text-xs tracking-widest">DIAGNOSTICS</span>
+</a>
+<a class="text-[#1e1b13] dark:text-[#f5ede0] border-b-2 border-[#926e69] flex items-center p-4 w-full hover:bg-[#e9e2d4] dark:hover:bg-[#3d3830] transition-none active:scale-95" href="#">
+<span class="material-symbols-outlined mr-3">terminal</span>
+<span class="font-['Space_Grotesk'] font-bold uppercase text-xs tracking-widest">LOGS</span>
+</a>
+<a class="text-[#1e1b13] dark:text-[#f5ede0] border-b-2 border-[#926e69] flex items-center p-4 w-full hover:bg-[#e9e2d4] dark:hover:bg-[#3d3830] transition-none active:scale-95" href="#">
+<span class="material-symbols-outlined mr-3">menu_book</span>
+<span class="font-['Space_Grotesk'] font-bold uppercase text-xs tracking-widest">LIBRARY</span>
+</a>
+</nav>
+<div class="p-4 mt-auto border-t-4 border-on-surface">
+<button class="w-full bg-on-surface text-surface font-['Space_Grotesk'] font-bold uppercase text-xs py-4 hover:bg-primary-container transition-none active:scale-95">
+                EXECUTE_SYNC
+            </button>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-20 h-[calc(100vh-80px)] overflow-hidden flex flex-col bg-surface relative">
+<!-- System Technical Readout Header -->
+<div class="w-full border-b-2 border-on-surface bg-surface-container-low px-6 py-2 flex justify-between items-center hatch-pattern">
+<div class="flex gap-8 font-mono text-[10px] font-bold tracking-tight">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 bg-primary-container"></span>
+<span>CPU_LOAD: <span class="text-primary-container">NOMINAL (14.2%)</span></span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 bg-primary-container"></span>
+<span>UPTIME: <span class="text-primary-container">100%</span></span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 bg-on-surface opacity-20"></span>
+<span>TEMP: <span class="text-on-surface">42°C</span></span>
+</div>
+</div>
+<div class="font-mono text-[10px] opacity-40 uppercase">
+                session_token: 0x88f2_a91c_77be
+            </div>
+</div>
+<div class="flex-grow flex flex-row overflow-hidden">
+<!-- Chat Stream -->
+<section class="flex-grow flex flex-col border-r-4 border-on-surface overflow-y-auto p-8 space-y-12 bg-surface">
+<!-- System Directive -->
+<div class="flex flex-col max-w-3xl">
+<div class="flex items-center gap-2 mb-4">
+<span class="bg-primary-container text-white px-2 py-0.5 text-[10px] font-black uppercase tracking-tighter">SYSTEM_OUTPUT</span>
+<span class="text-[10px] font-mono opacity-50">T-09:42:11</span>
+</div>
+<div class="bg-surface-container p-6 border-2 border-on-surface brutalist-shadow">
+<h2 class="font-headline font-black text-2xl uppercase tracking-tighter mb-4 leading-none">Initialization Complete.</h2>
+<p class="text-sm font-medium leading-relaxed mb-6">Commander, the infrastructure manifests for the <span class="bg-on-surface text-surface px-1">Siberian Node Cluster</span> have been validated. Standing by for deployment directives. How shall we proceed with the architecture optimization?</p>
+<!-- Infrastructure Code Block -->
+<div class="bg-on-surface p-4 text-primary font-mono text-xs leading-relaxed overflow-x-auto">
+<div class="text-white mb-2 opacity-50 uppercase text-[10px] tracking-widest border-b border-white border-opacity-20 pb-1">terraform_manifest_v1.0.2</div>
+<pre>resource "plumberito_node" "primary_cluster" {
+  name     = "industrial-core-01"
+  region   = "sector-7g"
+  capacity = "MAX_LOAD"
+  
+  security_policy {
+    protocol = "STRICT_ISOLATION"
+    encrypted = true
+  }
+}</pre>
+</div>
+</div>
+</div>
+<!-- User Command -->
+<div class="flex flex-col items-end">
+<div class="flex items-center gap-2 mb-4 flex-row-reverse">
+<span class="bg-on-surface text-surface px-2 py-0.5 text-[10px] font-black uppercase tracking-tighter">COMMAND_INPUT</span>
+<span class="text-[10px] font-mono opacity-50">T-09:44:05</span>
+</div>
+<div class="bg-surface p-6 border-2 border-on-surface brutalist-shadow-sm max-w-xl text-right">
+<p class="text-sm font-bold uppercase tracking-wide">Scale the primary cluster by 400% and initiate deep logging on all edge gateways. Redact sensitive geolocation data.</p>
+</div>
+</div>
+<!-- System Directive 2 -->
+<div class="flex flex-col max-w-3xl">
+<div class="flex items-center gap-2 mb-4">
+<span class="bg-primary-container text-white px-2 py-0.5 text-[10px] font-black uppercase tracking-tighter">DIRECTIVE</span>
+<span class="text-[10px] font-mono opacity-50">T-09:44:12</span>
+</div>
+<div class="bg-surface-container p-6 border-2 border-on-surface brutalist-shadow">
+<h2 class="font-headline font-black text-2xl uppercase tracking-tighter mb-4 leading-none">Scaling Sequence Engaged.</h2>
+<p class="text-sm font-medium leading-relaxed">Operation <span class="font-black text-primary-container underline">OVERLOAD_PRIME</span> is now in effect. Resources are being requisitioned from auxiliary sectors. Total node count target: 128. Logging level set to <span class="italic">VERBOSE_ABSOLUTE</span>.</p>
+</div>
+</div>
+</section>
+<!-- Technical Visualization Side Panel -->
+<section class="w-[400px] bg-surface-container-highest flex flex-col p-6 space-y-6">
+<div class="flex items-center justify-between border-b-2 border-on-surface pb-2">
+<span class="font-headline font-black text-sm uppercase tracking-widest">LIVE_SCHEMATIC</span>
+<span class="material-symbols-outlined text-primary-container text-xl" style="font-variation-settings: 'FILL' 1;">radar</span>
+</div>
+<!-- Schematic Visualizer -->
+<div class="aspect-square bg-[#0a0a0a] border-2 border-on-surface relative overflow-hidden flex items-center justify-center p-4">
+<div class="absolute inset-0 opacity-20 pointer-events-none" style="background-image: radial-gradient(#1bff00 1px, transparent 1px); background-size: 20px 20px;"></div>
+<img alt="Cybernetic Schematic" class="w-full h-full object-cover grayscale contrast-[200%] brightness-[0.5] mix-blend-screen" data-alt="Digital technical blueprint layout with glowing green lines on a black background, industrial network topology schematic style" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAFOdsM5QEv8RKIY8lUXSTIiLH6p7P6z0S0prXz7gawDNTQYvBKTcCAh6ciqicWQTd3rJGSJBboOzH6K97F3xo_HfjDk4PO1rLE2Q9q6nzPxaCn2TCYQqIMOE4DPI1hhpG_UcJDw5PL0NwnhfuzrRQvKbFTb73tCgfT7S-Q23Zw5JXFCZQbtBRT5LdRZnVN8JNLdFfCJijHrZ6GVvkr8vjMfUIRnh5_Iv7kPqmsBH5wcHalCOXf_jvqtXhII9KFqwUNNLK0Ozx_IYUQ"/>
+<!-- Overlay Graphics -->
+<div class="absolute top-4 left-4 font-mono text-[8px] text-[#1bff00] space-y-1">
+<div>TRK: 091.22</div>
+<div>LOK: SECTOR_7G</div>
+</div>
+</div>
+<!-- Technical Stats Grid -->
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-surface border-2 border-on-surface p-3">
+<div class="text-[9px] font-black uppercase text-secondary mb-1">Packet_Flow</div>
+<div class="text-xl font-headline font-black tracking-tighter">88.2 MB/s</div>
+</div>
+<div class="bg-surface border-2 border-on-surface p-3">
+<div class="text-[9px] font-black uppercase text-secondary mb-1">Encryption</div>
+<div class="text-xl font-headline font-black tracking-tighter">AES-512</div>
+</div>
+<div class="bg-surface border-2 border-on-surface p-3 col-span-2">
+<div class="text-[9px] font-black uppercase text-secondary mb-1">Queue_Latency</div>
+<div class="w-full h-2 bg-on-surface bg-opacity-10 mt-2 relative">
+<div class="absolute inset-y-0 left-0 bg-primary-container" style="width: 75%;"></div>
+</div>
+</div>
+</div>
+<!-- Alert Panel -->
+<div class="mt-auto bg-primary-container p-4 border-2 border-on-surface text-white">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-lg">warning</span>
+<span class="font-headline font-black text-xs uppercase tracking-widest">CRITICAL_ALERT</span>
+</div>
+<p class="text-[10px] font-bold uppercase leading-tight opacity-90">Thermal threshold approaching limit in SUB_STATION_04. Cooling cycle requested.</p>
+</div>
+</section>
+</div>
+<!-- Input Area -->
+<div class="w-full border-t-4 border-on-surface p-6 bg-surface-container-low">
+<div class="max-w-6xl mx-auto flex gap-4 items-end">
+<div class="flex-grow flex flex-col gap-2">
+<label class="text-[10px] font-black uppercase tracking-[0.3em] text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-xs">keyboard</span>
+                        COMMAND_INPUT_PROMPT
+                    </label>
+<div class="relative">
+<input class="w-full bg-surface border-2 border-on-surface px-4 py-4 font-mono text-sm placeholder:opacity-30 focus:outline-none focus:border-primary-container focus:ring-0 transition-none" placeholder="TYPE_COMMAND_HERE..." type="text"/>
+</div>
+</div>
+<button class="bg-primary-container text-white border-2 border-on-surface px-8 py-4 font-headline font-black uppercase tracking-widest text-sm brutalist-shadow hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-none active:bg-primary">
+                    EXECUTE_ORDER
+                </button>
+</div>
+</div>
+</main>
+<!-- Overlay Noise Texture -->
+<div class="fixed inset-0 pointer-events-none opacity-[0.03] mix-blend-multiply z-[100] hatch-pattern"></div>
+</body></html>

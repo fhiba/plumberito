@@ -30,6 +30,7 @@ export default function App() {
   const [githubToken, setGithubToken] = useState(() => IS_MOCK ? "mock-token" : localStorage.getItem("github_token"));
   const [githubUser, setGithubUser] = useState(() => IS_MOCK ? "demo_user" : localStorage.getItem("github_user"));
   const [paywallOpen, setPaywallOpen] = useState(false);
+  const [artifacts, setArtifacts] = useState([]);
   const [messages, setMessages] = useState([INITIAL_MESSAGE]);
   const [tokenUsage, setTokenUsage] = useState({
     total_tokens: 0,
@@ -135,6 +136,13 @@ export default function App() {
         break;
       }
 
+      case "artifact":
+        setArtifacts((prev) => {
+          if (prev.some((a) => a.url === data.url)) return prev;
+          return [...prev, { kind: data.kind, label: data.label, url: data.url }];
+        });
+        break;
+
       case "agent_error":
         setMessages((prev) => [
           ...prev,
@@ -181,6 +189,7 @@ export default function App() {
       setPaywallOpen(true);
       return;
     }
+    setArtifacts([]);
     const ts = timestamp();
     agentMsgIdRef.current = `agent-${Date.now()}`;
     assistantBufferRef.current = "";
@@ -193,7 +202,6 @@ export default function App() {
   }
 
   const agentMsgExists = messages.some((m) => m.id === agentMsgIdRef.current && m.steps?.length > 0);
-  const currentSteps = messages.find((m) => m.id === agentMsgIdRef.current)?.steps ?? [];
 
   if (!githubToken) {
     return (
@@ -253,7 +261,7 @@ export default function App() {
           <CommandInput onSubmit={handleSubmit} disabled={streaming} />
         </div>
 
-        <RightPanel steps={currentSteps} streaming={streaming} />
+        <RightPanel artifacts={artifacts} />
       </main>
 
       {paywallOpen && <PaywallModal onDismiss={() => setPaywallOpen(false)} />}
