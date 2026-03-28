@@ -7,6 +7,7 @@ export default function CommandInput({ onSubmit, disabled }) {
   const [buttonMounted, setButtonMounted] = useState(false);
   const [buttonExiting, setButtonExiting] = useState(false);
   const exitTimer = useRef(null);
+  const textareaRef = useRef(null);
 
   const hasText = value.trim().length > 0;
 
@@ -24,6 +25,12 @@ export default function CommandInput({ onSubmit, disabled }) {
     }
   }, [hasText]);
 
+  useEffect(() => {
+    if (!disabled) {
+      textareaRef.current?.focus();
+    }
+  }, [disabled]);
+
   const MAX_LENGTH = 4000;
 
   function handleSubmit(e) {
@@ -32,6 +39,7 @@ export default function CommandInput({ onSubmit, disabled }) {
     if (!trimmed || disabled) return;
     onSubmit(trimmed.slice(0, MAX_LENGTH));
     setValue("");
+    textareaRef.current?.focus();
   }
 
   function handleKeyDown(e) {
@@ -52,7 +60,8 @@ export default function CommandInput({ onSubmit, disabled }) {
         </label>
         <div className="flex gap-3 items-stretch">
           <textarea
-            className="flex-grow bg-surface border-2 border-[#1e1b13] px-4 xl:px-5 py-3 xl:py-4 font-mono text-sm xl:text-base 2xl:text-lg placeholder:opacity-30 focus:outline-none focus:border-primary-container resize-none transition-none brutalist-shadow"
+            ref={textareaRef}
+            className={`flex-grow bg-surface border-2 border-[#1e1b13] px-4 xl:px-5 py-3 xl:py-4 font-mono text-sm xl:text-base 2xl:text-lg placeholder:opacity-30 focus:outline-none focus:border-primary-container resize-none transition-none brutalist-shadow ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
             style={buttonExiting ? { animation: `textareaRebound ${ANIM_DURATION}ms cubic-bezier(0.22, 1, 0.36, 1) both` } : undefined}
             placeholder="TYPE_COMMAND_HERE..."
             value={value}

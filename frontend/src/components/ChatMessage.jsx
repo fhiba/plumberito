@@ -138,16 +138,6 @@ function AgentMessage({ message }) {
           if (expandedSteps.has(lastIdx)) return null;
           return (
             <div className={`p-5 xl:p-6 2xl:p-8 ${doneSteps.length > 1 ? "border-t-2 border-[#1e1b13] border-opacity-10" : ""}`}>
-              <div className="flex items-center gap-2 mb-3 xl:mb-4">
-                <span className="bg-[#1e1b13] text-[#fff8ef] px-1.5 py-0.5 text-[9px] xl:text-[10px] 2xl:text-xs font-black uppercase tracking-tighter font-label">
-                  {last.action}
-                </span>
-              </div>
-              {last.title && (
-                <h2 className="font-headline font-black text-xl xl:text-2xl 2xl:text-3xl uppercase tracking-tighter mb-3 xl:mb-4 leading-none">
-                  {last.title}
-                </h2>
-              )}
               <StepContent content={last.content} />
             </div>
           );
