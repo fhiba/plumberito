@@ -2,7 +2,9 @@ export default function Header({ tokenUsage, streaming }) {
   const total = tokenUsage?.total_tokens ?? 0;
   const prompt = tokenUsage?.prompt_tokens ?? 0;
   const completion = tokenUsage?.completion_tokens ?? 0;
+  const maxContext = tokenUsage?.max_context_tokens ?? 0;
   const cost = tokenUsage?.cost_usd ?? null;
+  const contextPct = maxContext > 0 ? Math.round((total / maxContext) * 100) : null;
 
   return (
     <nav className="fixed top-0 w-full border-b-4 border-[#1e1b13] z-50 bg-[#fff8ef] flex justify-between items-center h-16 xl:h-20 2xl:h-24 px-6 xl:px-10 2xl:px-16">
@@ -39,6 +41,11 @@ export default function Header({ tokenUsage, streaming }) {
               <span className="font-mono text-[9px] xl:text-[10px] 2xl:text-xs opacity-50">
                 ↑{prompt.toLocaleString()} ↓{completion.toLocaleString()}
               </span>
+              {contextPct !== null && (
+                <span className={`font-mono text-[10px] xl:text-xs 2xl:text-sm font-bold ${contextPct > 80 ? "text-[#CC0000]" : "text-secondary"}`}>
+                  CTX {contextPct}%
+                </span>
+              )}
               {cost !== null && (
                 <span className="font-mono text-[10px] xl:text-xs 2xl:text-sm text-[#CC0000] font-bold">
                   ${cost.toFixed(4)}

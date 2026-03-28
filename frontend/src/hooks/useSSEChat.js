@@ -12,14 +12,14 @@ function logEvent(data) {
   console.log(`%c[SSE] ${data.type}`, `color: ${color}; font-weight: bold;`, data);
 }
 
-async function getSSEReader(prompt, signal) {
+async function getSSEReader(messages, signal) {
   if (IS_MOCK) {
-    return createMockSSEStream(prompt).getReader();
+    return createMockSSEStream(messages[messages.length - 1]?.content || "").getReader();
   }
   const response = await fetch(`${BACKEND_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ messages }),
     signal,
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -30,11 +30,11 @@ export function useSSEChat({ onMessage, onTokenUpdate }) {
   const abortRef = useRef(null);
 
   const { mutate, isPending } = useMutation({
-    mutationFn: async (prompt) => {
+    mutationFn: async (messages) => {
       abortRef.current?.abort();
       abortRef.current = new AbortController();
 
-      const reader = await getSSEReader(prompt, abortRef.current.signal);
+      const reader = await getSSEReader(messages, abortRef.current.signal);
       const decoder = new TextDecoder();
       let buffer = "";
 

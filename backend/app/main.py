@@ -1,3 +1,4 @@
+import json
 import os
 
 from dotenv import load_dotenv
@@ -24,6 +25,19 @@ client = OpenAI(
 )
 
 MODEL = os.environ.get("LLM_MODEL", "meta-llama/llama-3.1-8b-instruct")
+MAX_CONTEXT_TOKENS = None
+
+
+@app.on_event("startup")
+def fetch_model_context_length():
+    global MAX_CONTEXT_TOKENS
+    try:
+        import httpx
+        resp = httpx.get(f"https://openrouter.ai/api/v1/models/{MODEL}")
+        data = resp.json()
+        MAX_CONTEXT_TOKENS = data.get("data", {}).get("context_length")
+    except Exception:
+        MAX_CONTEXT_TOKENS = None
 
 
 def sse(data: str) -> str:
@@ -31,7 +45,6 @@ def sse(data: str) -> str:
 
 
 def sse_json(obj: dict) -> str:
-    import json
     return sse(json.dumps(obj))
 
 
@@ -43,7 +56,11 @@ def health():
 @app.post("/chat")
 async def chat(request: Request):
     body = await request.json()
-    prompt = body.get("prompt", "")
+    messages = body.get("messages", [])
+
+    # Fallback: si mandan solo "prompt", convertir a messages
+    if not messages and body.get("prompt"):
+        messages = [{"role": "user", "content": body["prompt"]}]
 
     async def generate():
         yield sse_json({"type": "agent_start"})
@@ -51,32 +68,36 @@ async def chat(request: Request):
             "type": "agent_step",
             "step": 1,
             "action": "LLM_RESPONSE",
-            "title": "Generating response…",
+            "title": "Generating response\u2026",
             "content": "",
         })
 
         stream = client.chat.completions.create(
             model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             stream=True,
+            stream_options={"include_usage": True},
         )
 
         for chunk in stream:
-            delta = chunk.choices[0].delta.content if chunk.choices[0].delta.content else ""
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta.content or ""
             if delta:
                 yield sse_json({"type": "agent_stream", "delta": delta})
 
         yield sse_json({"type": "agent_step_done"})
 
+        usage_payload = {}
+        if MAX_CONTEXT_TOKENS:
+            usage_payload["max_context_tokens"] = MAX_CONTEXT_TOKENS
         if hasattr(chunk, "usage") and chunk.usage:
-            yield sse_json({
-                "type": "token_usage",
-                "payload": {
-                    "total_tokens": chunk.usage.total_tokens,
-                    "prompt_tokens": chunk.usage.prompt_tokens,
-                    "completion_tokens": chunk.usage.completion_tokens,
-                },
+            usage_payload.update({
+                "total_tokens": chunk.usage.total_tokens,
+                "prompt_tokens": chunk.usage.prompt_tokens,
+                "completion_tokens": chunk.usage.completion_tokens,
             })
+        yield sse_json({"type": "token_usage", "payload": usage_payload})
 
         yield sse_json({"type": "agent_done"})
 

@@ -28,11 +28,16 @@ export default function App() {
     total_tokens: 0,
     prompt_tokens: 0,
     completion_tokens: 0,
+    max_context_tokens: 0,
     cost_usd: null,
   });
   const bottomRef = useRef(null);
   // ID of the single agent bubble for the current turn — reset on each new prompt
   const agentMsgIdRef = useRef(null);
+  // LLM conversation history (role/content pairs sent to the backend)
+  const chatHistoryRef = useRef([]);
+  // Accumulates assistant response for the current turn
+  const assistantBufferRef = useRef("");
 
   const handleMessage = useCallback((data) => {
     const ts = timestamp();
@@ -58,6 +63,7 @@ export default function App() {
 
       case "agent_stream": {
         const id = agentMsgIdRef.current;
+        assistantBufferRef.current += data.delta || "";
         setMessages((prev) =>
           prev.map((m) => {
             if (m.id !== id) return m;
@@ -71,6 +77,8 @@ export default function App() {
       }
 
       case "agent_step_done":
+        break;
+
       case "agent_done": {
         const id = agentMsgIdRef.current;
         setMessages((prev) =>
@@ -80,6 +88,13 @@ export default function App() {
             return { ...m, steps };
           })
         );
+        // Append assistant response to conversation history
+        if (assistantBufferRef.current) {
+          chatHistoryRef.current.push({
+            role: "assistant",
+            content: assistantBufferRef.current,
+          });
+        }
         break;
       }
 
@@ -106,6 +121,7 @@ export default function App() {
       prompt_tokens: (prev.prompt_tokens || 0) + (payload.prompt_tokens || 0),
       completion_tokens:
         (prev.completion_tokens || 0) + (payload.completion_tokens || 0),
+      max_context_tokens: payload.max_context_tokens || prev.max_context_tokens,
       cost_usd:
         payload.cost_usd !== undefined
           ? (prev.cost_usd || 0) + payload.cost_usd
@@ -125,11 +141,13 @@ export default function App() {
   function handleSubmit(prompt) {
     const ts = timestamp();
     agentMsgIdRef.current = `agent-${Date.now()}`;
+    assistantBufferRef.current = "";
+    chatHistoryRef.current.push({ role: "user", content: prompt });
     setMessages((prev) => [
       ...prev,
       { id: `user-${Date.now()}`, role: "user", content: prompt, timestamp: ts },
     ]);
-    send(prompt);
+    send(chatHistoryRef.current);
   }
 
   const agentMsgExists = messages.some((m) => m.id === agentMsgIdRef.current && m.steps?.length > 0);
