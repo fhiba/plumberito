@@ -4,6 +4,7 @@ import ChatMessage from "./components/ChatMessage";
 import CommandInput from "./components/CommandInput";
 import { LeftPanel, RightPanel } from "./components/SidePanel";
 import { useSSEChat } from "./hooks/useSSEChat";
+import PaywallModal from "./components/PaywallModal";
 
 function timestamp() {
   return new Date().toLocaleTimeString("en-US", {
@@ -23,10 +24,12 @@ const INITIAL_MESSAGE = {
 };
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+const IS_MOCK = import.meta.env.VITE_MOCK === "true";
 
 export default function App() {
-  const [githubToken, setGithubToken] = useState(() => localStorage.getItem("github_token"));
-  const [githubUser, setGithubUser] = useState(() => localStorage.getItem("github_user"));
+  const [githubToken, setGithubToken] = useState(() => IS_MOCK ? "mock-token" : localStorage.getItem("github_token"));
+  const [githubUser, setGithubUser] = useState(() => IS_MOCK ? "demo_user" : localStorage.getItem("github_user"));
+  const [paywallOpen, setPaywallOpen] = useState(false);
   const [messages, setMessages] = useState([INITIAL_MESSAGE]);
   const [tokenUsage, setTokenUsage] = useState({
     total_tokens: 0,
@@ -174,6 +177,10 @@ export default function App() {
   }, [messages]);
 
   function handleSubmit(prompt) {
+    if (/desarrollar/i.test(prompt)) {
+      setPaywallOpen(true);
+      return;
+    }
     const ts = timestamp();
     agentMsgIdRef.current = `agent-${Date.now()}`;
     assistantBufferRef.current = "";
@@ -186,6 +193,7 @@ export default function App() {
   }
 
   const agentMsgExists = messages.some((m) => m.id === agentMsgIdRef.current && m.steps?.length > 0);
+  const currentSteps = messages.find((m) => m.id === agentMsgIdRef.current)?.steps ?? [];
 
   if (!githubToken) {
     return (
@@ -245,8 +253,10 @@ export default function App() {
           <CommandInput onSubmit={handleSubmit} disabled={streaming} />
         </div>
 
-        <RightPanel />
+        <RightPanel steps={currentSteps} streaming={streaming} />
       </main>
+
+      {paywallOpen && <PaywallModal onDismiss={() => setPaywallOpen(false)} />}
 
       <div className="fixed inset-0 pointer-events-none opacity-[0.03] mix-blend-multiply z-[100] hatch-pattern" />
     </div>
