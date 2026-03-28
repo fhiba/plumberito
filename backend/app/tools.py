@@ -6,6 +6,8 @@ from base64 import b64decode
 from github import Github
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_ORG = os.environ.get("GITHUB_ORG", "")
+
 
 NOISE_DIRS = {"node_modules", ".venv", "__pycache__", "dist", "build", ".next", ".git", ".tox", "venv", "env"}
 
@@ -76,6 +78,35 @@ TOOLS = [
                     },
                 },
                 "required": ["repo_full_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_repo",
+            "description": "Create a repository from a GitHub template repo. Copies all files from the template, then initiates ownership transfer to the target user. Use search_repos to find available templates in the org first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo_name": {
+                        "type": "string",
+                        "description": "Repository name in lowercase kebab-case (e.g. 'my-todo-app')",
+                    },
+                    "target_owner": {
+                        "type": "string",
+                        "description": "GitHub username who will own the repository",
+                    },
+                    "template_repo": {
+                        "type": "string",
+                        "description": "Full name of the template repo in owner/repo format (e.g. 'my-org/blank-template')",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Short one-line description of the project",
+                    },
+                },
+                "required": ["repo_name", "target_owner", "template_repo"],
             },
         },
     },
@@ -199,9 +230,61 @@ def _read_repo(repo_full_name: str, paths: list[str] | None = None) -> str:
     return json.dumps(result)
 
 
+def _create_repo(
+    repo_name: str,
+    target_owner: str,
+    template_repo: str,
+    description: str = "",
+) -> str:
+    if "/" not in template_repo:
+        return json.dumps({"error": f"template_repo must be 'owner/repo', got: '{template_repo}'"})
+
+    template_owner, template_repo_name = template_repo.split("/", 1)
+
+    import httpx
+
+    # 1. Create repo from template (copies all files automatically)
+    resp = httpx.post(
+        f"https://api.github.com/repos/{template_owner}/{template_repo_name}/generate",
+        headers={
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json",
+        },
+        json={
+            "owner": GITHUB_ORG,
+            "name": repo_name,
+            "description": description,
+            "private": True,
+            "include_all_branches": False,
+        },
+    )
+    resp.raise_for_status()
+    repo_data = resp.json()
+    full_name = repo_data["full_name"]
+
+    # 2. Initiate ownership transfer
+    transfer_resp = httpx.post(
+        f"https://api.github.com/repos/{full_name}/transfer",
+        headers={
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json",
+        },
+        json={"new_owner": target_owner},
+    )
+    transfer_initiated = transfer_resp.status_code < 300
+
+    return json.dumps({
+        "repo_name": repo_name,
+        "full_name": full_name,
+        "html_url": repo_data["html_url"],
+        "transfer_initiated": transfer_initiated,
+    })
+
+
 TOOL_DISPATCH = {
     "search_repos": _search_repos,
     "read_repo": _read_repo,
+    "create_repo": _create_repo,
 }
 
 
