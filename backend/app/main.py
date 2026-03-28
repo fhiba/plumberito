@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
 
+from app.auth import router as auth_router
 from app.tools import GITHUB_ORG, TOOLS, execute_tool
 
 logging.basicConfig(
@@ -28,6 +29,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
+
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=os.environ["OPENROUTER_API_KEY"],
@@ -42,12 +45,11 @@ SYSTEM_PROMPT = (
     "and the ability to provision GCP infrastructure.\n\n"
     "Always base your answers on actual repo data — use search_repos to find repos, then read_repo to inspect contents before answering.\n\n"
     "When the user wants to create a new project:\n"
-    f"1. Search for available templates in the '{GITHUB_ORG}' org using search_repos\n"
+    f"1. Search for available templates in the '{GITHUB_ORG}' org using search_repos with is_template=true\n"
     "2. Read the README of candidate templates with read_repo to understand what each one provides\n"
     "3. Recommend the best match and confirm with the user\n"
-    "4. Call create_repo with the chosen template_repo — this creates the repo and sends a collaboration invite\n"
-    "5. Ask the user to accept the collaboration invite on GitHub (email or notifications)\n"
-    "6. Once the user confirms they accepted, call transfer_repo to transfer ownership to them\n\n"
+    "4. Call create_repo with the chosen template_repo and desired repo_name — this creates the repo directly in the user's GitHub account\n"
+    "5. Share the repo URL with the user — they own it and can start working immediately\n\n"
     "When the user wants to deploy or provision infrastructure:\n"
     "1. Understand what the user wants to deploy (a web app, an API, a static site, storage, etc.)\n"
     "2. Determine the appropriate GCP resources: cloud_run_service for containerized apps, cloud_storage_bucket for storage/static files\n"
@@ -92,6 +94,7 @@ def health():
 async def chat(request: Request):
     body = await request.json()
     messages = body.get("messages", [])
+    github_token = body.get("github_token")
 
     if not messages and body.get("prompt"):
         messages = [{"role": "user", "content": body["prompt"]}]
@@ -216,7 +219,7 @@ async def chat(request: Request):
                         yield sse_json({"type": "agent_step_done"})
                         step += 1
 
-                        result = await execute_tool(name, args)
+                        result = await execute_tool(name, args, github_token=github_token)
                         logger.info("Tool %s result length: %d", name, len(result))
 
                         # Show a preview of the result

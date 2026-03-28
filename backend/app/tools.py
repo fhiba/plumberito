@@ -43,6 +43,10 @@ TOOLS = [
                         "type": "string",
                         "description": "Filter by primary language (e.g. 'Python', 'TypeScript')",
                     },
+                    "is_template": {
+                        "type": "boolean",
+                        "description": "If true, only return repos marked as GitHub template repositories. Default: false",
+                    },
                     "sort": {
                         "type": "string",
                         "enum": ["updated", "created", "name"],
@@ -87,17 +91,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "create_repo",
-            "description": "Create a repository from a GitHub template repo and invite a user as collaborator. After calling this, ask the user to accept the collaboration invite on GitHub, then call transfer_repo.",
+            "description": "Create a repository in the user's GitHub account from a template repo. The repo is created directly under the user's account — no transfer needed.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "repo_name": {
                         "type": "string",
                         "description": "Repository name in lowercase kebab-case (e.g. 'my-todo-app')",
-                    },
-                    "collaborator": {
-                        "type": "string",
-                        "description": "GitHub username to invite as collaborator",
                     },
                     "template_repo": {
                         "type": "string",
@@ -108,28 +108,7 @@ TOOLS = [
                         "description": "Short one-line description of the project",
                     },
                 },
-                "required": ["repo_name", "collaborator", "template_repo"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "transfer_repo",
-            "description": "Transfer ownership of a repository to a user. Only call this after the user has accepted the collaboration invite.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "repo_full_name": {
-                        "type": "string",
-                        "description": "Full repository name in owner/repo format",
-                    },
-                    "new_owner": {
-                        "type": "string",
-                        "description": "GitHub username to transfer the repo to",
-                    },
-                },
-                "required": ["repo_full_name", "new_owner"],
+                "required": ["repo_name", "template_repo"],
             },
         },
     },
@@ -201,6 +180,7 @@ def _search_repos(
     name: str = "",
     owner: str = "",
     language: str = "",
+    is_template: bool = False,
     sort: str = "updated",
     page: int = 1,
     per_page: int = 20,
@@ -213,6 +193,8 @@ def _search_repos(
 
     matched = []
     for repo in g.get_user().get_repos(sort=sort if sort != "name" else "full_name"):
+        if is_template and not repo.is_template:
+            continue
         if name_lower and name_lower not in repo.name.lower():
             continue
         if owner_lower and owner_lower not in (repo.owner.login or "").lower():
@@ -312,97 +294,74 @@ def _read_repo(repo_full_name: str, paths: list[str] | None = None) -> str:
 
 def _create_repo(
     repo_name: str,
-    collaborator: str,
     template_repo: str,
     description: str = "",
+    user_token: str | None = None,
 ) -> str:
     if "/" not in template_repo:
         return json.dumps({"error": f"template_repo must be 'owner/repo', got: '{template_repo}'"})
 
     template_owner, template_repo_name = template_repo.split("/", 1)
+    token = user_token or GITHUB_TOKEN
 
     import httpx
 
-    # 1. Create repo from template (copies all files automatically)
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    # Resolve the owner for the new repo (user's account if using their token)
+    if user_token:
+        user_resp = httpx.get("https://api.github.com/user", headers=headers)
+        if user_resp.status_code >= 400:
+            return json.dumps({"error": f"Failed to get GitHub user info: {user_resp.text}"})
+        owner = user_resp.json()["login"]
+    else:
+        owner = GITHUB_ORG
+
     resp = httpx.post(
         f"https://api.github.com/repos/{template_owner}/{template_repo_name}/generate",
-        headers={
-            "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json",
-        },
+        headers=headers,
         json={
-            "owner": GITHUB_ORG,
+            "owner": owner,
             "name": repo_name,
             "description": description,
             "private": True,
             "include_all_branches": False,
         },
     )
-    if resp.status_code == 404:
-        return json.dumps({"error": f"Template repo '{template_repo}' not found or not marked as a template on GitHub. Go to the repo settings and enable 'Template repository'."})
     if resp.status_code >= 400:
+        import logging
+        logging.getLogger("plumberito").error("create_repo failed (%d): %s", resp.status_code, resp.text)
         return json.dumps({"error": f"GitHub API error {resp.status_code}: {resp.text}"})
 
     repo_data = resp.json()
-    full_name = repo_data["full_name"]
 
-    # 2. Invite collaborator with admin permission
-    collab_resp = httpx.put(
-        f"https://api.github.com/repos/{full_name}/collaborators/{collaborator}",
-        headers={
-            "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json",
-        },
-        json={"permission": "admin"},
-    )
-
-    result = {
+    return json.dumps({
         "repo_name": repo_name,
-        "full_name": full_name,
+        "full_name": repo_data["full_name"],
         "html_url": repo_data["html_url"],
-    }
-
-    if collab_resp.status_code < 300:
-        result["collaborator_invited"] = True
-    else:
-        result["collaborator_invited"] = False
-        result["collaborator_error"] = f"GitHub API error {collab_resp.status_code}: {collab_resp.text}"
-
-    return json.dumps(result)
-
-
-def _transfer_repo(
-    repo_full_name: str,
-    new_owner: str,
-) -> str:
-    import httpx
-
-    resp = httpx.post(
-        f"https://api.github.com/repos/{repo_full_name}/transfer",
-        headers={
-            "Authorization": f"token {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json",
-        },
-        json={"new_owner": new_owner},
-    )
-
-    if resp.status_code < 300:
-        return json.dumps({"transferred": True, "new_owner": new_owner})
-    return json.dumps({"transferred": False, "error": f"GitHub API error {resp.status_code}: {resp.text}"})
+        "owner": owner,
+    })
 
 
 TOOL_DISPATCH = {
     "search_repos": _search_repos,
     "read_repo": _read_repo,
     "create_repo": _create_repo,
-    "transfer_repo": _transfer_repo,
     "provision_infrastructure": _provision_infrastructure,
     "destroy_infrastructure": _destroy_infrastructure,
 }
 
+# Tools that receive the user's GitHub token
+_USER_TOKEN_TOOLS = {"create_repo"}
 
-async def execute_tool(name: str, arguments: dict) -> str:
+
+async def execute_tool(name: str, arguments: dict, github_token: str | None = None) -> str:
     fn = TOOL_DISPATCH.get(name)
     if not fn:
         return json.dumps({"error": f"Unknown tool: {name}"})
+    if github_token and name in _USER_TOKEN_TOOLS:
+        arguments["user_token"] = github_token
     return await asyncio.to_thread(fn, **arguments)

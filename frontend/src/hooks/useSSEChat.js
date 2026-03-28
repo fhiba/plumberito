@@ -12,21 +12,23 @@ function logEvent(data) {
   console.log(`%c[SSE] ${data.type}`, `color: ${color}; font-weight: bold;`, data);
 }
 
-async function getSSEReader(messages, signal) {
+async function getSSEReader(messages, signal, githubToken) {
   if (IS_MOCK) {
     return createMockSSEStream(messages[messages.length - 1]?.content || "").getReader();
   }
+  const body = { messages };
+  if (githubToken) body.github_token = githubToken;
   const response = await fetch(`${BACKEND_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify(body),
     signal,
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.body.getReader();
 }
 
-export function useSSEChat({ onMessage, onTokenUpdate }) {
+export function useSSEChat({ onMessage, onTokenUpdate, githubToken }) {
   const abortRef = useRef(null);
 
   const { mutate, isPending } = useMutation({
@@ -34,7 +36,7 @@ export function useSSEChat({ onMessage, onTokenUpdate }) {
       abortRef.current?.abort();
       abortRef.current = new AbortController();
 
-      const reader = await getSSEReader(messages, abortRef.current.signal);
+      const reader = await getSSEReader(messages, abortRef.current.signal, githubToken);
       const decoder = new TextDecoder();
       let buffer = "";
 

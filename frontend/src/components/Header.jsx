@@ -1,4 +1,4 @@
-export default function Header({ tokenUsage, streaming }) {
+export default function Header({ tokenUsage, streaming, githubUser, onLogout }) {
   const total = tokenUsage?.total_tokens ?? 0;
   const prompt = tokenUsage?.prompt_tokens ?? 0;
   const completion = tokenUsage?.completion_tokens ?? 0;
@@ -13,6 +13,19 @@ export default function Header({ tokenUsage, streaming }) {
       </span>
 
       <div className="flex items-center gap-4 xl:gap-6">
+        {/* GitHub user */}
+        {githubUser && (
+          <div className="flex items-center gap-2 border-2 border-[#1e1b13] px-3 xl:px-4 py-1.5 xl:py-2 bg-surface-container">
+            <span className="font-mono text-xs xl:text-sm font-bold">{githubUser}</span>
+            <button
+              onClick={onLogout}
+              className="font-mono text-[10px] xl:text-xs uppercase tracking-widest opacity-50 hover:opacity-100 transition-opacity"
+            >
+              logout
+            </button>
+          </div>
+        )}
+
         {/* SSE activity indicator */}
         <div className="flex items-center gap-2">
           <span

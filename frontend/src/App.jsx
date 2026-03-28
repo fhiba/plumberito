@@ -22,7 +22,11 @@ const INITIAL_MESSAGE = {
   timestamp: timestamp(),
 };
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+
 export default function App() {
+  const [githubToken, setGithubToken] = useState(() => localStorage.getItem("github_token"));
+  const [githubUser, setGithubUser] = useState(() => localStorage.getItem("github_user"));
   const [messages, setMessages] = useState([INITIAL_MESSAGE]);
   const [tokenUsage, setTokenUsage] = useState({
     total_tokens: 0,
@@ -32,12 +36,42 @@ export default function App() {
     cost_usd: null,
   });
   const bottomRef = useRef(null);
-  // ID of the single agent bubble for the current turn — reset on each new prompt
   const agentMsgIdRef = useRef(null);
-  // LLM conversation history (role/content pairs sent to the backend)
   const chatHistoryRef = useRef([]);
-  // Accumulates assistant response for the current turn
   const assistantBufferRef = useRef("");
+
+  // Handle OAuth callback: exchange code for token
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (!code) return;
+
+    // Clean URL immediately
+    window.history.replaceState({}, "", window.location.pathname);
+
+    fetch(`${BACKEND_URL}/auth/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.access_token) {
+          localStorage.setItem("github_token", data.access_token);
+          localStorage.setItem("github_user", data.username);
+          setGithubToken(data.access_token);
+          setGithubUser(data.username);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  function handleLogout() {
+    localStorage.removeItem("github_token");
+    localStorage.removeItem("github_user");
+    setGithubToken(null);
+    setGithubUser(null);
+  }
 
   const handleMessage = useCallback((data) => {
     const ts = timestamp();
@@ -132,6 +166,7 @@ export default function App() {
   const { streaming, send } = useSSEChat({
     onMessage: handleMessage,
     onTokenUpdate: handleTokenUpdate,
+    githubToken,
   });
 
   useEffect(() => {
@@ -152,9 +187,28 @@ export default function App() {
 
   const agentMsgExists = messages.some((m) => m.id === agentMsgIdRef.current && m.steps?.length > 0);
 
+  if (!githubToken) {
+    return (
+      <div className="flex flex-col h-screen bg-background text-[#1e1b13] font-body items-center justify-center gap-8">
+        <h1 className="text-5xl xl:text-6xl font-black uppercase tracking-tighter font-headline">
+          PLUMBERITO
+        </h1>
+        <p className="font-mono text-sm uppercase tracking-widest opacity-50">
+          DevOps & Infrastructure Assistant
+        </p>
+        <a
+          href={`${BACKEND_URL}/auth/github`}
+          className="border-4 border-[#1e1b13] bg-[#1e1b13] text-[#fff8ef] px-8 py-4 font-black uppercase tracking-tight text-lg hover:bg-[#fff8ef] hover:text-[#1e1b13] transition-colors brutalist-shadow"
+        >
+          Sign in with GitHub
+        </a>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-background text-[#1e1b13] font-body overflow-hidden">
-      <Header tokenUsage={tokenUsage} streaming={streaming} />
+      <Header tokenUsage={tokenUsage} streaming={streaming} githubUser={githubUser} onLogout={handleLogout} />
 
       <main className="flex-1 mt-16 xl:mt-20 2xl:mt-24 flex overflow-hidden bg-surface">
         <LeftPanel />
