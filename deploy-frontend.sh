@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/frontend"
+
+npm run build
+firebase deploy --only hosting
