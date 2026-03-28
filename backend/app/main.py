@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
 
-from app.tools import TOOLS, execute_tool
+from app.tools import GITHUB_ORG, TOOLS, execute_tool
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,7 +44,9 @@ SYSTEM_PROMPT = (
     f"1. Search for available templates in the '{GITHUB_ORG}' org using search_repos\n"
     "2. Read the README of candidate templates with read_repo to understand what each one provides\n"
     "3. Recommend the best match and confirm with the user\n"
-    "4. Call create_repo with the chosen template_repo\n"
+    "4. Call create_repo with the chosen template_repo — this creates the repo and sends a collaboration invite\n"
+    "5. Ask the user to accept the collaboration invite on GitHub (email or notifications)\n"
+    "6. Once the user confirms they accepted, call transfer_repo to transfer ownership to them\n"
 )
 
 

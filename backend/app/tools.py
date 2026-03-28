@@ -85,7 +85,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "create_repo",
-            "description": "Create a repository from a GitHub template repo. Copies all files from the template, then initiates ownership transfer to the target user. Use search_repos to find available templates in the org first.",
+            "description": "Create a repository from a GitHub template repo and invite a user as collaborator. After calling this, ask the user to accept the collaboration invite on GitHub, then call transfer_repo.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -93,9 +93,9 @@ TOOLS = [
                         "type": "string",
                         "description": "Repository name in lowercase kebab-case (e.g. 'my-todo-app')",
                     },
-                    "target_owner": {
+                    "collaborator": {
                         "type": "string",
-                        "description": "GitHub username who will own the repository",
+                        "description": "GitHub username to invite as collaborator",
                     },
                     "template_repo": {
                         "type": "string",
@@ -106,7 +106,28 @@ TOOLS = [
                         "description": "Short one-line description of the project",
                     },
                 },
-                "required": ["repo_name", "target_owner", "template_repo"],
+                "required": ["repo_name", "collaborator", "template_repo"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "transfer_repo",
+            "description": "Transfer ownership of a repository to a user. Only call this after the user has accepted the collaboration invite.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo_full_name": {
+                        "type": "string",
+                        "description": "Full repository name in owner/repo format",
+                    },
+                    "new_owner": {
+                        "type": "string",
+                        "description": "GitHub username to transfer the repo to",
+                    },
+                },
+                "required": ["repo_full_name", "new_owner"],
             },
         },
     },
@@ -232,7 +253,7 @@ def _read_repo(repo_full_name: str, paths: list[str] | None = None) -> str:
 
 def _create_repo(
     repo_name: str,
-    target_owner: str,
+    collaborator: str,
     template_repo: str,
     description: str = "",
 ) -> str:
@@ -258,33 +279,64 @@ def _create_repo(
             "include_all_branches": False,
         },
     )
-    resp.raise_for_status()
+    if resp.status_code == 404:
+        return json.dumps({"error": f"Template repo '{template_repo}' not found or not marked as a template on GitHub. Go to the repo settings and enable 'Template repository'."})
+    if resp.status_code >= 400:
+        return json.dumps({"error": f"GitHub API error {resp.status_code}: {resp.text}"})
+
     repo_data = resp.json()
     full_name = repo_data["full_name"]
 
-    # 2. Initiate ownership transfer
-    transfer_resp = httpx.post(
-        f"https://api.github.com/repos/{full_name}/transfer",
+    # 2. Invite collaborator with admin permission
+    collab_resp = httpx.put(
+        f"https://api.github.com/repos/{full_name}/collaborators/{collaborator}",
         headers={
             "Authorization": f"token {GITHUB_TOKEN}",
             "Accept": "application/vnd.github+json",
         },
-        json={"new_owner": target_owner},
+        json={"permission": "admin"},
     )
-    transfer_initiated = transfer_resp.status_code < 300
 
-    return json.dumps({
+    result = {
         "repo_name": repo_name,
         "full_name": full_name,
         "html_url": repo_data["html_url"],
-        "transfer_initiated": transfer_initiated,
-    })
+    }
+
+    if collab_resp.status_code < 300:
+        result["collaborator_invited"] = True
+    else:
+        result["collaborator_invited"] = False
+        result["collaborator_error"] = f"GitHub API error {collab_resp.status_code}: {collab_resp.text}"
+
+    return json.dumps(result)
+
+
+def _transfer_repo(
+    repo_full_name: str,
+    new_owner: str,
+) -> str:
+    import httpx
+
+    resp = httpx.post(
+        f"https://api.github.com/repos/{repo_full_name}/transfer",
+        headers={
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json",
+        },
+        json={"new_owner": new_owner},
+    )
+
+    if resp.status_code < 300:
+        return json.dumps({"transferred": True, "new_owner": new_owner})
+    return json.dumps({"transferred": False, "error": f"GitHub API error {resp.status_code}: {resp.text}"})
 
 
 TOOL_DISPATCH = {
     "search_repos": _search_repos,
     "read_repo": _read_repo,
     "create_repo": _create_repo,
+    "transfer_repo": _transfer_repo,
 }
 
 
