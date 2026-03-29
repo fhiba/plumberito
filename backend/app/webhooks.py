@@ -3,6 +3,7 @@ import hmac
 import json
 import logging
 import os
+import time
 
 import httpx
 from fastapi import APIRouter, Request, Response
@@ -15,7 +16,7 @@ logger = logging.getLogger("plumberito")
 SENTRY_WEBHOOK_SECRET = os.environ.get("SENTRY_WEBHOOK_SECRET", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3.5-flash-02-23")
+WEBHOOK_LLM_MODEL = os.environ.get("WEBHOOK_LLM_MODEL", "deepseek/deepseek-chat")
 
 DEPLOY_REGISTRY_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "deploy_registry.json")
 
@@ -39,25 +40,31 @@ def _verify_sentry_signature(body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def _analyze_error_with_llm(error_title: str, error_detail: str, repo_context: str) -> str:
-    """Use LLM to analyze the error and suggest a fix."""
+def _analyze_error_with_llm(error_title: str, error_detail: str, repo_context: str) -> dict:
+    """Use LLM to analyze the error and generate a fix.
+
+    Returns dict with:
+      - analysis: markdown string with root cause analysis
+      - files: dict {path: content} with fixed files (empty if no fix possible)
+    """
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=OPENROUTER_API_KEY,
     )
 
     response = client.chat.completions.create(
-        model=LLM_MODEL,
+        model=WEBHOOK_LLM_MODEL,
         messages=[
             {
                 "role": "system",
                 "content": (
                     "You are a senior developer diagnosing a production error. "
-                    "Analyze the error and provide: "
-                    "1. A brief root cause analysis "
-                    "2. The likely file(s) and line(s) involved "
-                    "3. A suggested fix "
-                    "Be concise and actionable. Write in markdown."
+                    "You must respond with a JSON object containing:\n"
+                    '- "analysis": a brief markdown root cause analysis\n'
+                    '- "files": an object mapping file paths to their full corrected content. '
+                    "Only include files you are confident need changes. "
+                    "If you cannot produce a concrete fix, set files to an empty object {}.\n\n"
+                    "Respond ONLY with valid JSON, no markdown fences."
                 ),
             },
             {
@@ -69,14 +76,84 @@ def _analyze_error_with_llm(error_title: str, error_detail: str, repo_context: s
                 ),
             },
         ],
-        max_tokens=1000,
+        max_tokens=4000,
     )
 
-    return response.choices[0].message.content or "Could not analyze error."
+    raw = response.choices[0].message.content or "{}"
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("LLM returned non-JSON response, treating as analysis only")
+        result = {"analysis": raw, "files": {}}
+
+    return {
+        "analysis": result.get("analysis", "Could not analyze error."),
+        "files": result.get("files", {}),
+    }
+
+
+def _create_fix_pr(
+    repo_full_name: str,
+    title: str,
+    body: str,
+    files: dict[str, str],
+    default_branch: str,
+) -> str | None:
+    """Create a branch, commit the fix, and open a PR. Returns PR URL or None."""
+    from app.tools import _commit_files
+
+    api = f"https://api.github.com/repos/{repo_full_name}"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    # Get head SHA of default branch
+    ref_resp = httpx.get(f"{api}/git/ref/heads/{default_branch}", headers=headers)
+    if ref_resp.status_code >= 400:
+        logger.error("Failed to get default branch ref: %s", ref_resp.text)
+        return None
+    head_sha = ref_resp.json()["object"]["sha"]
+
+    # Create fix branch
+    branch_name = f"fix/sentry-{int(time.time())}"
+    create_ref_resp = httpx.post(
+        f"{api}/git/refs",
+        headers=headers,
+        json={"ref": f"refs/heads/{branch_name}", "sha": head_sha},
+    )
+    if create_ref_resp.status_code >= 400:
+        logger.error("Failed to create branch: %s", create_ref_resp.text)
+        return None
+
+    # Commit files to the new branch
+    success, err = _commit_files(repo_full_name, files, f"fix: {title}", branch_name, headers)
+    if not success:
+        logger.error("Failed to commit fix: %s", err)
+        return None
+
+    # Create PR
+    pr_resp = httpx.post(
+        f"{api}/pulls",
+        headers=headers,
+        json={
+            "title": title,
+            "body": body,
+            "head": branch_name,
+            "base": default_branch,
+        },
+    )
+    if pr_resp.status_code >= 400:
+        logger.error("Failed to create PR (%d): %s", pr_resp.status_code, pr_resp.text)
+        return None
+
+    pr_url = pr_resp.json().get("html_url")
+    logger.info("Created fix PR: %s", pr_url)
+    return pr_url
 
 
 def _create_github_issue(repo_full_name: str, title: str, body: str):
-    """Create a GitHub issue in the repo."""
+    """Fallback: create a GitHub issue when no code fix is possible."""
     resp = httpx.post(
         f"https://api.github.com/repos/{repo_full_name}/issues",
         headers={
@@ -139,16 +216,34 @@ async def sentry_webhook(request: Request):
 
     repo_full_name = deploy_info["repo"]
 
-    # Get repo context for LLM analysis
+    # Get repo context — first read tree, then read source files (not just config)
     from app.tools import _read_repo
-    repo_context = _read_repo(repo_full_name)
+    repo_context_raw = _read_repo(repo_full_name)
+    repo_context = json.loads(repo_context_raw)
 
-    # Analyze with LLM
+    # Read actual source code files so the LLM can generate fixes
+    SOURCE_EXTS = {".js", ".jsx", ".ts", ".tsx", ".py", ".vue", ".svelte", ".go", ".rs"}
+    source_paths = [
+        p for p in repo_context.get("tree", [])
+        if any(p.endswith(ext) for ext in SOURCE_EXTS)
+        and "/node_modules/" not in p
+        and "/dist/" not in p
+        and "/.next/" not in p
+        and "/build/" not in p
+    ]
+    if source_paths:
+        repo_with_source = _read_repo(repo_full_name, paths=source_paths)
+    else:
+        repo_with_source = repo_context_raw
+
+    # Analyze with LLM and generate fix
     logger.info("Analyzing Sentry error for %s: %s", repo_full_name, error_title)
-    analysis = _analyze_error_with_llm(error_title, error_detail, repo_context[:5000])
+    llm_result = _analyze_error_with_llm(error_title, error_detail, repo_with_source[:8000])
 
-    # Create GitHub issue
-    issue_body = (
+    analysis = llm_result["analysis"]
+    fix_files = llm_result["files"]
+
+    pr_body = (
         f"## Production Error (Sentry)\n\n"
         f"**Error:** {error_title}\n\n"
         f"**Details:**\n```\n{error_detail[:1000]}\n```\n\n"
@@ -157,10 +252,23 @@ async def sentry_webhook(request: Request):
         f"*Automatically created by Plumberito from Sentry alert*"
     )
 
+    if fix_files:
+        pr_url = _create_fix_pr(
+            repo_full_name,
+            f"[Sentry Fix] {error_title[:100]}",
+            pr_body,
+            fix_files,
+            repo_context["default_branch"],
+        )
+        if pr_url:
+            return {"status": "ok", "repo": repo_full_name, "pr_created": True, "pr_url": pr_url}
+        logger.warning("PR creation failed, falling back to issue")
+
+    # Fallback: create issue if no fix or PR creation failed
     _create_github_issue(
         repo_full_name,
         f"[Sentry] {error_title[:100]}",
-        issue_body,
+        pr_body,
     )
 
     return {"status": "ok", "repo": repo_full_name, "issue_created": True}
