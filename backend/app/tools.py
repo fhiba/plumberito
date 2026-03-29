@@ -436,7 +436,6 @@ name: Deploy
 on:
   push:
     branches: [{default_branch}]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -739,7 +738,31 @@ def _setup_deploy(
         logger.error("Firebase site creation error: %s", e)
         return json.dumps({"error": f"Failed to create Firebase site: {e}"})
 
-    # 2. Update deploy.yml in the repo
+    # 2. Grant WIF access for this repo to the Firebase SA
+    try:
+        _grant_wif_access(repo_full_name)
+        steps.append({"step": "grant_wif_access", "status": "success"})
+    except Exception as e:
+        logger.error("WIF IAM binding error: %s", e)
+        return json.dumps({"error": f"Failed to grant WIF access: {e}"})
+
+    # 3. Create Sentry project and set DSN (must happen before the commit
+    #    so the push-triggered deploy already has the secret available)
+    sentry_dsn = None
+    if SENTRY_AUTH_TOKEN:
+        try:
+            sentry_dsn = _create_sentry_project(site_id)
+            if sentry_dsn:
+                _set_github_secret(repo_full_name, "SENTRY_DSN", sentry_dsn, token)
+                _create_sentry_alert_rule(site_id)
+                steps.append({"step": "setup_sentry", "status": "success", "dsn": sentry_dsn})
+            else:
+                steps.append({"step": "setup_sentry", "status": "skipped", "reason": "Could not get DSN"})
+        except Exception as e:
+            logger.error("Sentry setup error: %s", e)
+            steps.append({"step": "setup_sentry", "status": "error", "reason": str(e)})
+
+    # 4. Commit deploy config (triggers deploy via push)
     import time
     try:
         # Wait for repo to have content (template population is async)
@@ -786,29 +809,6 @@ def _setup_deploy(
         logger.error("Workflow update error: %s", e)
         return json.dumps({"error": f"Failed to update deploy workflow: {e}"})
 
-    # 3. Grant WIF access for this repo to the Firebase SA
-    try:
-        _grant_wif_access(repo_full_name)
-        steps.append({"step": "grant_wif_access", "status": "success"})
-    except Exception as e:
-        logger.error("WIF IAM binding error: %s", e)
-        return json.dumps({"error": f"Failed to grant WIF access: {e}"})
-
-    # 4. Create Sentry project and set DSN
-    sentry_dsn = None
-    if SENTRY_AUTH_TOKEN:
-        try:
-            sentry_dsn = _create_sentry_project(site_id)
-            if sentry_dsn:
-                _set_github_secret(repo_full_name, "SENTRY_DSN", sentry_dsn, token)
-                _create_sentry_alert_rule(site_id)
-                steps.append({"step": "setup_sentry", "status": "success", "dsn": sentry_dsn})
-            else:
-                steps.append({"step": "setup_sentry", "status": "skipped", "reason": "Could not get DSN"})
-        except Exception as e:
-            logger.error("Sentry setup error: %s", e)
-            steps.append({"step": "setup_sentry", "status": "error", "reason": str(e)})
-
     # 5. Save deploy registry
     try:
         registry = _load_deploy_registry()
@@ -822,27 +822,11 @@ def _setup_deploy(
     except Exception as e:
         logger.error("Deploy registry save error: %s", e)
 
-    # 6. Trigger first deploy
-    try:
-        dispatch_resp = httpx.post(
-            f"https://api.github.com/repos/{repo_full_name}/actions/workflows/deploy.yml/dispatches",
-            headers=gh_headers,
-            json={"ref": default_branch},
-        )
-        if dispatch_resp.status_code < 300:
-            steps.append({"step": "trigger_first_deploy", "status": "success"})
-        else:
-            logger.error("Workflow dispatch failed (%d): %s", dispatch_resp.status_code, dispatch_resp.text)
-            steps.append({"step": "trigger_first_deploy", "status": "error", "reason": dispatch_resp.text})
-    except Exception as e:
-        logger.error("Workflow dispatch error: %s", e)
-        steps.append({"step": "trigger_first_deploy", "status": "error", "reason": str(e)})
-
     return json.dumps({
         "status": "success",
         "site_url": site_url,
         "steps": steps,
-        "message": f"Deploy configured and first deploy triggered. Every push to main will deploy to {site_url}. Errors are tracked via Sentry.",
+        "message": f"Deploy configured. Every push to {default_branch} will deploy to {site_url}. Errors are tracked via Sentry.",
     })
 
 
