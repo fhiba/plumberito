@@ -92,6 +92,27 @@ def sse_json(obj: dict) -> str:
     return sse(json.dumps(obj))
 
 
+def _extract_artifact(tool_name: str, result: str) -> dict | None:
+    try:
+        data = json.loads(result)
+    except json.JSONDecodeError:
+        return None
+    if data.get("status") == "error" or data.get("error"):
+        return None
+    if tool_name == "create_repo":
+        url = data.get("html_url")
+        label = data.get("repo_name") or (data.get("full_name", "").split("/")[-1])
+        if url:
+            return {"kind": "github", "label": label, "url": url}
+    elif tool_name == "provision_infrastructure":
+        outputs = data.get("outputs", {})
+        for key, value in outputs.items():
+            if key.endswith("_url") and isinstance(value, str) and value.startswith("http"):
+                label = value.replace("https://", "").replace("http://", "").rstrip("/")
+                return {"kind": "deploy", "label": label, "url": value}
+    return None
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -241,6 +262,10 @@ async def chat(request: Request):
                         yield sse_json({"type": "agent_stream", "delta": preview})
                         yield sse_json({"type": "agent_step_done"})
                         step += 1
+
+                        artifact = _extract_artifact(name, result)
+                        if artifact:
+                            yield sse_json({"type": "artifact", **artifact})
 
                         llm_messages.append({
                             "role": "tool",
